@@ -1,0 +1,334 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    color: #0f172a;
+    background-color: #f8fafc;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    color: #0f172a;
+    background-color: #f8fafc;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* ===== MYCOLLEGE BASE DARK MODE ===== */
+
+html.dark body {
+  background-color: #0f172a !important;
+  color: #f1f5f9 !important;
+}
+
+/* Base Backgrounds */
+html.dark .bg-white { background-color: #1e293b !important; }
+html.dark .bg-slate-50 { background-color: #0f172a !important; }
+html.dark .bg-slate-100 { background-color: #1e293b !important; }
+html.dark .bg-slate-200 { background-color: #334155 !important; }
+
+/* Base Text Colors */
+html.dark .text-slate-900, html.dark .text-slate-800, html.dark .text-slate-700,
+html.dark .text-gray-900, html.dark .text-gray-800, html.dark .text-gray-700, html.dark .text-black {
+  color: #f1f5f9 !important;
+}
+html.dark .text-slate-600, html.dark .text-slate-500,
+html.dark .text-gray-600, html.dark .text-gray-500 {
+  color: #cbd5e1 !important;
+}
+html.dark .text-slate-400, html.dark .text-gray-400 {
+  color: #94a3b8 !important;
+}
+
+/* Borders */
+html.dark .border-slate-100, html.dark .border-slate-200, html.dark .border-slate-300, html.dark .border-white {
+  border-color: #475569 !important;
+}
+
+/* Input fields */
+html.dark input, html.dark textarea, html.dark select {
+  background-color: #1e293b;
+  color: #f1f5f9 !important;
+  border-color: #475569;
+}
+html.dark input::placeholder, html.dark textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Dark scrollbar */
+html.dark ::-webkit-scrollbar-thumb { background: #475569; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+html.dark a { color: #93c5fd; }
+
+
+/* ===== FIX: ANNOUNCEMENTS, PANELS & TINTED CARDS ===== */
+
+/* Ensure colored light backgrounds flip to dark slate */
+html.dark .bg-gray-50, html.dark .bg-gray-100, html.dark .bg-gray-200,
+html.dark .bg-indigo-50, html.dark .bg-blue-50, html.dark .bg-indigo-100, html.dark .bg-blue-100,
+html.dark .bg-purple-50, html.dark .bg-pink-50, html.dark .bg-green-50, html.dark .bg-emerald-50 {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+}
+
+/* Catch-all for cards and articles so they don't remain white */
+html.dark .card, html.dark [class*="card"], html.dark article, html.dark div[class*="rounded"] {
+  background-color: #1e293b;
+}
+
+/* Prevent nested elements from reverting to light text on light backgrounds */
+html.dark .bg-white *, html.dark .bg-gray-50 *, html.dark .bg-gray-100 *,
+html.dark .bg-slate-50 *, html.dark .bg-slate-100 *, html.dark .bg-indigo-50 *, html.dark .bg-blue-50 * {
+  color: inherit;
+}
+
+
+/* ===== FIX: URGENT ALERTS & NOTICES ===== */
+
+/* Force dark backgrounds on urgent/warning cards */
+html.dark [class*="urgent"], html.dark [class*="alert"], html.dark [class*="notice"],
+html.dark .bg-red-50, html.dark .bg-rose-50, html.dark .bg-amber-50, html.dark .bg-orange-50, html.dark .bg-yellow-50 {
+  background-color: #1e293b !important;
+  border-color: #ef4444 !important;
+}
+
+/* Keep accent text visible in dark mode */
+html.dark .text-red-500, html.dark .text-red-600, html.dark .text-rose-500, html.dark .text-rose-600 {
+  color: #f87171 !important;
+}
+html.dark .text-amber-500, html.dark .text-amber-600, html.dark .text-yellow-500 {
+  color: #fbbf24 !important;
+}
+
+
+/* ===== FIX: CHAT MESSAGES ===== */
+
+/* Message containers */
+html.dark [class*="chat"], html.dark [class*="message"] {
+  background-color: #1e293b !important;
+  color: #f1f5f9;
+}
+
+/* Received (gray) chat bubbles */
+html.dark [class*="message-received"], html.dark [class*="chat-received"], html.dark .chat-bubble:not(.chat-bubble-primary) {
+  background-color: #334155 !important;
+  color: #f1f5f9 !important;
+}
+
+
+/* ===== HOVER STATES ===== */
+html.dark .hover\:bg-white:hover, html.dark .hover\:bg-gray-50:hover,
+html.dark .hover\:bg-slate-50:hover, html.dark .hover\:bg-gray-100:hover, html.dark .hover\:bg-slate-100:hover {
+  background-color: #334155 !important;
+}
+
+/* ===== ULTIMATE FIX FOR WHITE / URGENT CARDS IN DARK MODE ===== */
+
+/* Force any element using a light background utility class to turn dark */
+html.dark [class*="bg-white"],
+html.dark [class*="bg-slate-50"],
+html.dark [class*="bg-gray-50"],
+html.dark [class*="bg-slate-100"],
+html.dark [class*="bg-gray-100"],
+html.dark [class*="bg-red-50"],
+html.dark [class*="bg-rose-50"] {
+  background-color: #1e293b !important;
+}
+
+/* Ensure the text inside remains crisp white/light gray */
+html.dark [class*="bg-white"] *,
+html.dark [class*="bg-red-50"] *,
+html.dark [class*="bg-rose-50"] * {
+  color: inherit;
+}
+
+
+/* ========================================================
+   THE FINAL NUCLEAR FIX FOR ALL LIGHT CARDS & URGENT ALERTS
+   ======================================================== */
+
+/* 1. Force EVERY light card, article, and tinted background to turn dark slate */
+html.dark article,
+html.dark [class*="bg-white"],
+html.dark [class*="bg-slate-50"],
+html.dark [class*="bg-gray-50"],
+html.dark [class*="bg-zinc-50"],
+html.dark [class*="bg-neutral-50"],
+html.dark [class*="bg-red-50"],
+html.dark [class*="bg-rose-50"],
+html.dark [class*="bg-orange-50"],
+html.dark [class*="bg-amber-50"],
+html.dark [class*="bg-yellow-50"],
+html.dark [class*="bg-green-50"],
+html.dark [class*="bg-blue-50"],
+html.dark [class*="bg-indigo-50"],
+html.dark [class*="bg-purple-50"],
+html.dark [class*="bg-pink-50"] {
+  background-color: #1e293b !important;
+  background-image: none !important; /* Destroys any light gradients */
+}
+
+/* 2. Force all text inside these cards to be readable white */
+html.dark article *,
+html.dark [class*="bg-white"] *,
+html.dark [class*="bg-red-50"] *,
+html.dark [class*="bg-rose-50"] *,
+html.dark [class*="bg-orange-50"] *,
+html.dark [class*="bg-slate-50"] * {
+  color: #f1f5f9 !important;
+}
+
+/* 3. Protect specific text colors (Urgent tags, links, muted text) so they don't turn pure white */
+html.dark .text-red-500, html.dark .text-red-600, html.dark [class*="text-red-"] { 
+  color: #f87171 !important; 
+}
+html.dark .text-blue-500, html.dark .text-blue-600, html.dark [class*="text-blue-"] { 
+  color: #60a5fa !important; 
+}
+html.dark .text-amber-500, html.dark .text-amber-600, html.dark [class*="text-amber-"] { 
+  color: #fbbf24 !important; 
+}
+html.dark .text-emerald-500, html.dark .text-emerald-600, html.dark [class*="text-emerald-"] { 
+  color: #34d399 !important; 
+}
+html.dark .text-gray-500, html.dark .text-slate-500, html.dark .text-gray-400 { 
+  color: #94a3b8 !important; 
+}
+
+/* 4. Ensure buttons stay visible and don't get overridden */
+html.dark button[class*="bg-blue-"],
+html.dark a[class*="bg-blue-"] {
+  background-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+/* ========================================================
+   FIX FOR FAINT BADGES (URGENT, LIVE, VERIFIED)
+   ======================================================== */
+
+/* Urgent / Error Badges (Red/Rose) */
+html.dark [class*="bg-red-100"], 
+html.dark [class*="bg-rose-100"],
+html.dark [class*="bg-red-200"] {
+  background-color: rgba(225, 29, 72, 0.2) !important;
+  color: #fda4af !important; 
+}
+html.dark [class*="bg-red-100"] *, 
+html.dark [class*="bg-rose-100"] * {
+  color: #fda4af !important;
+}
+
+/* Live / Success Badges (Green/Emerald) */
+html.dark [class*="bg-green-100"], 
+html.dark [class*="bg-emerald-100"],
+html.dark [class*="bg-green-200"] {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+  color: #6ee7b7 !important; 
+}
+html.dark [class*="bg-green-100"] *, 
+html.dark [class*="bg-emerald-100"] * {
+  color: #6ee7b7 !important;
+}
+
+/* Verified / Warning Badges (Yellow/Amber/Orange) */
+html.dark [class*="bg-yellow-100"], 
+html.dark [class*="bg-amber-100"],
+html.dark [class*="bg-orange-100"] {
+  background-color: rgba(245, 158, 11, 0.2) !important;
+  color: #fcd34d !important; 
+}
+html.dark [class*="bg-yellow-100"] *, 
+html.dark [class*="bg-amber-100"] * {
+  color: #fcd34d !important;
+}
+
+/* ========================================================
+   FIX FOR INVISIBLE ICONS (LOCATION PINS, ETC.) IN DARK MODE
+   ======================================================== */
+
+/* Force standard SVGs and icon fonts to a light slate color */
+html.dark svg,
+html.dark i,
+html.dark [class*="icon"] {
+  color: #cbd5e1 !important;
+}
+
+/* Ensure icons inside primary buttons or tinted badges inherit their specific text color */
+html.dark button svg,
+html.dark button i,
+html.dark [class*="bg-blue-"] svg,
+html.dark [class*="bg-green-"] svg,
+html.dark [class*="bg-red-"] svg {
+  color: inherit !important;
+}
+
+/* ========================================================
+   GUARANTEED FIX FOR INVISIBLE LOCATION PINS & ICONS
+   ======================================================== */
+
+/* 1. Force the main SVG container to a bright slate color */
+html.dark svg,
+html.dark [class*="icon"] {
+  color: #cbd5e1 !important;
+}
+
+/* 2. Force the actual drawn lines (paths) to use the bright color */
+html.dark svg [stroke],
+html.dark svg path[stroke] {
+  stroke: #cbd5e1 !important;
+}
+
+/* 3. If the icon uses solid fill instead of lines, force that to be bright too */
+html.dark svg [fill]:not([fill="none"]):not([fill="white"]):not([fill="#fff"]) {
+  fill: #cbd5e1 !important;
+}
+
+/* 4. EXCEPTION: Protect your buttons and badges so their icons stay perfectly white or colored */
+html.dark button svg,
+html.dark button svg [stroke],
+html.dark button svg path[stroke],
+html.dark a[class*="bg-"] svg,
+html.dark a[class*="bg-"] svg [stroke],
+html.dark [class*="bg-green-"] svg [stroke],
+html.dark [class*="bg-red-"] svg [stroke],
+html.dark [class*="bg-yellow-"] svg [stroke] {
+  color: #ffffff !important;
+  stroke: currentColor !important;
+}
