@@ -19,6 +19,12 @@ import {
   type Division,
 } from './src/server/approvedStudentsData.ts';
 import { FACULTY_DETAILS } from './src/server/facultyData.ts';
+import {
+  deleteSessionRecord,
+  loadSessionRecord,
+  saveSessionRecord,
+  type SessionRecord,
+} from './src/server/sessionStore.ts';
 import type {
   Announcement,
   AnnouncementCategory,
@@ -100,7 +106,7 @@ function broadcastToUser(userId: string, institutionId: string, payload: Record<
 // ----------------------------------------------------
 // SECURE APPROVED STUDENT DATA & AUTHENTICATION STATE
 // ----------------------------------------------------
-const { studentsMap: approvedStudentsMap, report: initialApprovedDatasetReport } = buildApprovedDataset();
+const { report: initialApprovedDatasetReport } = buildApprovedDataset();
 const facultyDetailsByEmail = new Map(
   FACULTY_DETAILS.map((faculty) => [normalizeEmail(faculty.email), faculty])
 );
@@ -121,27 +127,7 @@ interface OtpRequestLimit {
 
 const otpRequestLimits = new Map<string, OtpRequestLimit>();
 
-export interface SessionRecord {
-  token: string;
-  userId: string;
-  authUserId: string;
-  email: string;
-  supabaseAccessToken: string;
-  supabaseRefreshToken: string;
-  createdAt: number;
-  expiresAt: number;
-}
-
 const activeSessions = new Map<string, SessionRecord>();
-
-// Pre-register user-student-1 (Prathmesh Dhore) in approved roster
-const prathmeshRec = approvedStudentsMap.get('prathmesh.dhore@somaiya.edu');
-if (prathmeshRec) {
-  prathmeshRec.isRegistered = true;
-  prathmeshRec.registeredUserId = 'user-student-1';
-  prathmeshRec.registeredName = 'Prathmesh Dhore';
-  prathmeshRec.registeredUsername = 'prathmesh_dhore';
-}
 
 // ----------------------------------------------------
 // MULTI-TENANT IN-MEMORY / PERSISTED STATE
@@ -381,7 +367,9 @@ function getSessionTokenFromRequest(req: { headers: { cookie?: string } }): stri
     .find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
 
   return sessionCookie
-    ? sessionCookie.slice(sessionCookieName.length + 1)
+    ? /^[A-Za-z0-9_-]{43}$/.test(sessionCookie.slice(sessionCookieName.length + 1))
+      ? sessionCookie.slice(sessionCookieName.length + 1)
+      : null
     : null;
 }
 
@@ -443,6 +431,14 @@ async function getSupabaseClientForRequest(req: Request) {
 
   session.supabaseAccessToken = data.session.access_token;
   session.supabaseRefreshToken = data.session.refresh_token;
+  const user = users.find((candidate) => candidate.id === session.userId);
+  if (user) session.userSnapshot = user;
+  try {
+    await saveSessionRecord(session);
+  } catch (saveError) {
+    console.error('Could not persist the refreshed session:', saveError);
+    return null;
+  }
   return createAuthenticatedSupabaseClient(data.session.access_token);
 }
 
@@ -657,7 +653,7 @@ function requireAuth(req: Request, res: Response): User | null {
 
 // Protect API routes by default. Only OTP/session bootstrap and public division metadata
 // are accessible without an authenticated session. A caller-supplied x-user-id is never identity proof.
-app.use('/api', (req: Request, res: Response, next) => {
+app.use('/api', async (req: Request, res: Response, next) => {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !hasSameOrigin(req)) {
     return res.status(403).json({ error: 'Request origin is not allowed.' });
   }
@@ -671,6 +667,58 @@ app.use('/api', (req: Request, res: Response, next) => {
     '/supabase-health',
     '/supabase-auth-health',
   ]);
+  const pathsWithoutSessionRestore = new Set([
+    '/auth/request-otp',
+    '/auth/verify-otp',
+    '/divisions',
+    '/health',
+    '/supabase-health',
+    '/supabase-auth-health',
+  ]);
+  const token = getSessionTokenFromRequest(req);
+  if (token && !pathsWithoutSessionRestore.has(req.path)) {
+    let session: SessionRecord | undefined;
+    try {
+      const storedSession = await loadSessionRecord(token);
+      if (storedSession) {
+        const cachedSession = activeSessions.get(token);
+        session = cachedSession?.userId === storedSession.userId
+          ? {
+              ...storedSession,
+              userSnapshot: cachedSession.userSnapshot,
+            }
+          : storedSession;
+        activeSessions.set(token, session);
+      } else {
+        activeSessions.delete(token);
+      }
+    } catch (restoreError) {
+      console.error('Could not restore the persistent session:', restoreError);
+      return res.status(503).json({
+        error: 'Could not restore your sign-in session. Please try again later.',
+      });
+    }
+
+    if (session) {
+      const previousSnapshot = JSON.stringify(session.userSnapshot);
+      const user = users.find((candidate) => candidate.id === session.userId);
+      if (user) {
+        session.userSnapshot = user;
+      } else {
+        users.push(session.userSnapshot);
+      }
+      res.once('finish', () => {
+        const currentUser = users.find((candidate) => candidate.id === session?.userId);
+        if (currentUser && JSON.stringify(currentUser) !== previousSnapshot) {
+          session!.userSnapshot = currentUser;
+          void saveSessionRecord(session!).catch((saveError: unknown) => {
+            console.error('Could not persist the updated session user snapshot:', saveError);
+          });
+        }
+      });
+    }
+  }
+
   if (publicPaths.has(req.path)) return next();
   const authenticatedUser = getStrictAuthenticatedUser(req);
   if (!authenticatedUser) {
@@ -818,8 +866,6 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Verification code must be exactly 6 numeric digits.' });
   }
 
-  // Ensure authorized
-  const approved = approvedStudentsMap.get(norm);
   const facultyDetails = facultyDetailsByEmail.get(norm);
   const { data: authData, error: authError } = await supabaseAuth.auth.verifyOtp({
     email: norm,
@@ -863,11 +909,33 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Your account has an unsupported application role.' });
   }
   const isFacultyLogin = profileRole === 'faculty';
-  const divisionIds = isFacultyLogin ? [] : approved?.divisionIds || [];
+  let divisionIds: string[] = [];
+  if (!isFacultyLogin) {
+    const { data: profileDivisions, error: divisionsError } = await userSupabase
+      .from('profile_divisions')
+      .select('division_id')
+      .eq('profile_id', authData.user.id);
+    if (divisionsError) {
+      console.error('Could not load the signed-in user divisions:', divisionsError.code);
+      return res.status(503).json({ error: 'Could not load your college divisions. Please try again later.' });
+    }
+    divisionIds = profileDivisions.map((row: { division_id: string }) => row.division_id);
+  }
   const divisionLabels = divisionIds.map((dId) => {
     const d = DIVISIONS.find((div) => div.id === dId);
     return d ? d.name : dId;
   });
+  const { data: batchDetails, error: batchDetailsError } = await userSupabase
+    .from('mycollege_batch_directory')
+    .select('full_name, roll_no, department_id, academic_year, division_id, phone')
+    .eq('profile_id', authData.user.id)
+    .maybeSingle();
+  if (batchDetailsError) {
+    console.error('Could not load persisted batch details:', batchDetailsError.code);
+    return res.status(503).json({
+      error: 'Could not load your saved batch details. Please try again later.',
+    });
+  }
 
   if (!user) {
     const namePart = norm.split('@')[0];
@@ -879,20 +947,40 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
     user = {
       id: authData.user.id,
       institutionId: profile.institution_id,
-      name: autoName,
+      name: batchDetails?.full_name || autoName,
       email: norm,
       username: profile.username || '',
       role: profileRole as UserRole,
-      departmentId: profile.department_id || DEPARTMENT_IDS.artificialIntelligence,
+      departmentId:
+        batchDetails?.department_id ||
+        profile.department_id ||
+        DEPARTMENT_IDS.artificialIntelligence,
       departmentName:
-        departments.find((department) => department.id === profile.department_id)?.name ||
+        departments.find(
+          (department) =>
+            department.id ===
+            (batchDetails?.department_id || profile.department_id)
+        )?.name ||
         'Artificial Intelligence & Data Science',
+      ...(batchDetails?.phone || profile.phone
+        ? { phone: batchDetails?.phone || profile.phone }
+        : {}),
+      ...(batchDetails?.roll_no || profile.roll_no
+        ? { rollNo: batchDetails?.roll_no || profile.roll_no }
+        : {}),
       ...(profile.designation || facultyDetails ? { designation: profile.designation || facultyDetails?.designation } : {}),
       ...(isFacultyLogin
         ? {}
         : {
-            course: 'B.Tech Artificial Intelligence & Data Science',
-            year: 'Second Year',
+            course:
+              profile.course ||
+              departments.find(
+                (department) =>
+                  department.id ===
+                  (batchDetails?.department_id || profile.department_id)
+              )?.courses[0] ||
+              'B.Tech Artificial Intelligence & Data Science',
+            year: batchDetails?.academic_year || profile.year || 'Second Year',
             division: divisionLabels.join(' & '),
           }),
       divisionIds: [...divisionIds],
@@ -912,25 +1000,35 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
   } else {
     user.id = authData.user.id;
     user.institutionId = profile.institution_id;
-    const departmentId = profile.department_id || user.departmentId;
+    const departmentId =
+      batchDetails?.department_id || profile.department_id || user.departmentId;
     user.departmentId = departmentId;
     user.departmentName =
       departments.find((department) => department.id === departmentId)?.name ||
       user.departmentName;
-    user.name = profile.full_name || facultyDetails?.name || user.name;
+    user.name = batchDetails?.full_name || profile.full_name || facultyDetails?.name || user.name;
     user.username = profile.username || user.username;
     user.phone = profile.phone || user.phone;
+    if (batchDetails?.phone || profile.phone) user.phone = batchDetails?.phone || profile.phone;
+    if (batchDetails?.roll_no || profile.roll_no) {
+      user.rollNo = batchDetails?.roll_no || profile.roll_no;
+    }
+    if (!isFacultyLogin) {
+      user.course =
+        profile.course ||
+        departments.find((department) => department.id === departmentId)?.courses[0] ||
+        user.course;
+      user.year = batchDetails?.academic_year || profile.year || user.year;
+    }
     user.avatar = profile.avatar_url || user.avatar;
     user.designation = profile.designation || facultyDetails?.designation || user.designation;
     user.role = profileRole as UserRole;
     user.isVerified = profile.is_verified;
     user.isProfileCompleted = profile.is_profile_completed;
     user.termsAcceptedAt = profile.terms_accepted_at || undefined;
-    if (approved) {
-      user.divisionIds = [...divisionIds];
-      user.divisionNames = divisionLabels;
-      user.division = divisionLabels.join(' & ');
-    }
+    user.divisionIds = [...divisionIds];
+    user.divisionNames = divisionLabels;
+    user.division = divisionLabels.join(' & ');
   }
   if (!user) {
     throw new Error('Could not construct the authenticated application user.');
@@ -970,7 +1068,7 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
   // Generate genuine session token
   const token = crypto.randomBytes(32).toString('base64url');
   const sessionMaxAgeSeconds = 30 * 24 * 60 * 60;
-  activeSessions.set(token, {
+  const session: SessionRecord = {
     token,
     userId: user.id,
     authUserId: authData.user.id,
@@ -979,7 +1077,17 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
     supabaseRefreshToken: authData.session.refresh_token,
     createdAt: Date.now(),
     expiresAt: Date.now() + sessionMaxAgeSeconds * 1000,
-  });
+    userSnapshot: user,
+  };
+  try {
+    await saveSessionRecord(session);
+  } catch (saveError) {
+    console.error('Could not create a persistent sign-in session:', saveError);
+    return res.status(503).json({
+      error: 'Could not create a durable sign-in session. Please try again later.',
+    });
+  }
+  activeSessions.set(token, session);
   setSessionCookie(res, token, sessionMaxAgeSeconds);
 
   // Audit log
@@ -1138,16 +1246,6 @@ app.post('/api/auth/complete-profile', async (req: Request, res: Response) => {
 
   currentUser.interests = savedInterests;
 
-  // Update the approved student roster when this account has a student record.
-  const approved = approvedStudentsMap.get(normalizeEmail(currentUser.email));
-  if (approved) {
-    approved.isRegistered = true;
-    approved.registeredUserId = currentUser.id;
-    approved.registeredName = currentUser.name;
-    approved.registeredUsername = currentUser.username;
-    approved.updatedAt = new Date().toISOString();
-  }
-
   auditLogs.unshift({
     id: `log-${Date.now()}`,
     institutionId: currentUser.institutionId,
@@ -1166,6 +1264,7 @@ app.post('/api/auth/complete-profile', async (req: Request, res: Response) => {
 // 5. Sign Out / Invalidate Session
 app.post('/api/auth/logout', async (req: Request, res: Response) => {
   const token = getSessionTokenFromRequest(req);
+  let sessionStoreError = false;
   if (token) {
     const session = activeSessions.get(token);
     if (session) {
@@ -1185,13 +1284,26 @@ app.post('/api/auth/logout', async (req: Request, res: Response) => {
       }
     }
     activeSessions.delete(token);
+    if (session) {
+      try {
+        await deleteSessionRecord(token);
+      } catch (deleteError) {
+        sessionStoreError = true;
+        console.error('Could not delete the persistent session during logout:', deleteError);
+      }
+    }
   }
   setSessionCookie(res, '', 0);
+  if (sessionStoreError) {
+    return res.status(503).json({
+      error: 'Your session was signed out here, but could not be removed from persistent storage.',
+    });
+  }
   res.json({ success: true, message: 'Signed out successfully.' });
 });
 
 // 6. Get Current Auth Session
-app.get('/api/auth/session', (req: Request, res: Response) => {
+app.get('/api/auth/session', async (req: Request, res: Response) => {
   const user = getStrictAuthenticatedUser(req);
   if (!user) {
     return res.json({ authenticated: false, user: null });
@@ -1238,16 +1350,73 @@ app.get('/api/divisions', async (req: Request, res: Response) => {
 });
 
 // 8. Admin: Get Approved Student Roster & Division Report
-app.get('/api/admin/approved-students', (req: Request, res: Response) => {
+app.get('/api/admin/approved-students', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
   if (!currentUser || currentUser.role !== 'admin') {
     return res.status(403).json({ error: 'Administrative privileges required to inspect approved student roster.' });
   }
 
+  const supabase = await getSupabaseClientForRequest(req);
+  if (!supabase) {
+    return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
+  }
+
+  const [
+    { data: studentRows, error: studentsError },
+    { data: divisionRows, error: divisionsError },
+  ] = await Promise.all([
+    supabase
+      .from('approved_students')
+      .select('*')
+      .eq('institution_id', currentUser.institutionId)
+      .order('email'),
+    supabase
+      .from('approved_student_divisions')
+      .select('student_email, division_id'),
+  ]);
+  if (studentsError || divisionsError) {
+    const errorCode = studentsError?.code || divisionsError?.code;
+    console.error('Could not load the approved student roster from Supabase:', errorCode);
+    return res.status(503).json({ error: 'Could not load the approved student roster. Please try again later.' });
+  }
+
+  const divisionsByEmail = new Map<string, string[]>();
+  for (const row of divisionRows) {
+    const email = normalizeEmail(row.student_email);
+    const memberships = divisionsByEmail.get(email) || [];
+    memberships.push(row.division_id);
+    divisionsByEmail.set(email, memberships);
+  }
+  const allStudents: ApprovedStudent[] = studentRows.map((row: {
+    email: string;
+    status: string;
+    registered_user_id: string | null;
+    registered_at: string | null;
+    created_at?: string;
+    updated_at?: string;
+  }) => ({
+    email: normalizeEmail(row.email),
+    divisionIds: divisionsByEmail.get(normalizeEmail(row.email)) || [],
+    status: row.status === 'revoked' ? 'revoked' : 'authorized',
+    isRegistered: Boolean(row.registered_user_id),
+    ...(row.registered_user_id ? { registeredUserId: row.registered_user_id } : {}),
+    ...(users.find((user) => user.id === row.registered_user_id)
+      ? (() => {
+          const registeredUser = users.find((user) => user.id === row.registered_user_id);
+          return {
+            registeredName: registeredUser?.name,
+            registeredUsername: registeredUser?.username,
+          };
+        })()
+      : {}),
+    createdAt: row.created_at || row.registered_at || row.updated_at || '',
+    updatedAt: row.updated_at || row.registered_at || '',
+  }));
+
   const search = ((req.query.search as string) || '').toLowerCase().trim();
   const divisionId = (req.query.divisionId as string) || 'all';
 
-  let list = Array.from(approvedStudentsMap.values());
+  let list = allStudents;
 
   if (divisionId !== 'all') {
     list = list.filter((s) => s.divisionIds.includes(divisionId));
@@ -1263,11 +1432,11 @@ app.get('/api/admin/approved-students', (req: Request, res: Response) => {
   }
 
   // Dynamic live report
-  const allList = Array.from(approvedStudentsMap.values());
+  const allList = allStudents;
   const report = {
     totalSuppliedDivisionA: allList.filter((s) => s.divisionIds.includes(DIVISION_IDS.a)).length,
     totalSuppliedDivisionB: allList.filter((s) => s.divisionIds.includes(DIVISION_IDS.b)).length,
-    totalSuppliedEntries: initialApprovedDatasetReport.totalSuppliedEntries,
+    totalSuppliedEntries: allList.reduce((total, student) => total + student.divisionIds.length, 0),
     uniqueAddressesOverall: allList.length,
     sharedAddressesCount: allList.filter((s) => s.divisionIds.length > 1).length,
     sharedAddresses: allList.filter((s) => s.divisionIds.length > 1).map((s) => s.email).sort(),
@@ -1288,6 +1457,11 @@ app.post('/api/admin/approved-students', async (req: Request, res: Response) => 
     return res.status(403).json({ error: 'Administrative privileges required.' });
   }
 
+  const supabase = await getSupabaseClientForRequest(req);
+  if (!supabase) {
+    return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
+  }
+
   const { email, divisionIds } = req.body;
   if (!email || typeof email !== 'string') {
     return res.status(400).json({ error: 'Student email is required.' });
@@ -1298,28 +1472,64 @@ app.post('/api/admin/approved-students', async (req: Request, res: Response) => 
     return res.status(400).json({ error: 'Invalid email address format.' });
   }
 
-  if (!Array.isArray(divisionIds) || divisionIds.length === 0) {
+  if (
+    !Array.isArray(divisionIds) ||
+    divisionIds.length === 0 ||
+    !divisionIds.every((id: unknown) => typeof id === 'string')
+  ) {
     return res.status(400).json({ error: 'At least one division must be assigned.' });
   }
 
-  const now = new Date().toISOString();
-  const existing = approvedStudentsMap.get(norm);
-
-  if (existing) {
-    existing.divisionIds = Array.from(new Set([...existing.divisionIds, ...divisionIds]));
-    existing.status = 'authorized';
-    existing.updatedAt = now;
-  } else {
-    approvedStudentsMap.set(norm, {
-      email: norm,
-      divisionIds,
-      status: 'authorized',
-      isRegistered: false,
-      createdAt: now,
-      updatedAt: now,
-    });
+  const uniqueDivisionIds = Array.from(new Set(divisionIds as string[]));
+  const { data: validDivisions, error: validDivisionsError } = await supabase
+    .from('divisions')
+    .select('id')
+    .eq('institution_id', currentUser.institutionId)
+    .in('id', uniqueDivisionIds);
+  if (validDivisionsError) {
+    console.error('Could not validate approved student divisions:', validDivisionsError.code);
+    return res.status(503).json({ error: 'Could not validate the selected divisions. Please try again.' });
+  }
+  if (validDivisions.length !== uniqueDivisionIds.length) {
+    return res.status(400).json({ error: 'One or more selected divisions are not available in your institution.' });
   }
 
+  const now = new Date().toISOString();
+  const { data: savedStudent, error: studentError } = await supabase.rpc(
+    'mycollege_admin_save_approved_student',
+    {
+      p_email: norm,
+      p_division_ids: uniqueDivisionIds,
+      p_status: 'authorized',
+      p_new_email: null,
+      p_replace_divisions: false,
+      p_allow_create: true,
+    }
+  );
+  if (studentError || !savedStudent) {
+    console.error('Could not authorize approved student in Supabase:', studentError?.code);
+    return res.status(503).json({ error: 'Could not authorize this student. Please try again.' });
+  }
+
+  const savedRosterEntry = savedStudent as {
+    email: string;
+    status: 'authorized' | 'revoked';
+    registered_user_id: string | null;
+    registered_at: string | null;
+    updated_at: string | null;
+    division_ids: string[];
+  };
+  const student: ApprovedStudent = {
+    email: savedRosterEntry.email,
+    divisionIds: savedRosterEntry.division_ids,
+    status: savedRosterEntry.status,
+    isRegistered: Boolean(savedRosterEntry.registered_user_id),
+    ...(savedRosterEntry.registered_user_id
+      ? { registeredUserId: savedRosterEntry.registered_user_id }
+      : {}),
+    createdAt: savedRosterEntry.registered_at || savedRosterEntry.updated_at || now,
+    updatedAt: savedRosterEntry.updated_at || now,
+  };
   auditLogs.unshift({
     id: `log-${Date.now()}`,
     institutionId: currentUser.institutionId,
@@ -1333,7 +1543,7 @@ app.post('/api/admin/approved-students', async (req: Request, res: Response) => 
   await persistAuditLog(req, auditLogs[0]);
 
   res.status(201).json({
-    student: approvedStudentsMap.get(norm),
+    student,
     message: `Student ${norm} successfully authorized.`,
   });
 });
@@ -1345,34 +1555,99 @@ app.put('/api/admin/approved-students/:email', async (req: Request, res: Respons
     return res.status(403).json({ error: 'Administrative privileges required.' });
   }
 
+  const supabase = await getSupabaseClientForRequest(req);
+  if (!supabase) {
+    return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
+  }
+
   const norm = normalizeEmail(req.params.email);
-  const student = approvedStudentsMap.get(norm);
-  if (!student) {
+  const { data: currentStudent, error: studentLoadError } = await supabase
+    .from('approved_students')
+    .select('*')
+    .eq('institution_id', currentUser.institutionId)
+    .eq('email', norm)
+    .maybeSingle();
+  if (studentLoadError) {
+    console.error('Could not load approved student for update:', studentLoadError.code);
+    return res.status(503).json({ error: 'Could not load this student record. Please try again.' });
+  }
+  if (!currentStudent) {
     return res.status(404).json({ error: 'Student email not found in approved roster.' });
   }
 
   const { divisionIds, status, newEmail } = req.body;
   const now = new Date().toISOString();
+  let replacementDivisionIds: string[] | null = null;
 
-  if (Array.isArray(divisionIds) && divisionIds.length > 0) {
-    student.divisionIds = divisionIds;
+  if (divisionIds !== undefined) {
+    if (
+      !Array.isArray(divisionIds) ||
+      divisionIds.length === 0 ||
+      !divisionIds.every((id: unknown) => typeof id === 'string')
+    ) {
+      return res.status(400).json({ error: 'At least one valid division must be assigned.' });
+    }
+    replacementDivisionIds = Array.from(new Set(divisionIds as string[]));
+    const { data: validDivisions, error: validDivisionsError } = await supabase
+      .from('divisions')
+      .select('id')
+      .eq('institution_id', currentUser.institutionId)
+      .in('id', replacementDivisionIds);
+    if (validDivisionsError) {
+      console.error('Could not validate approved student divisions:', validDivisionsError.code);
+      return res.status(503).json({ error: 'Could not validate the selected divisions. Please try again.' });
+    }
+    if (validDivisions.length !== replacementDivisionIds.length) {
+      return res.status(400).json({ error: 'One or more selected divisions are not available in your institution.' });
+    }
   }
 
-  if (status === 'authorized' || status === 'revoked') {
-    student.status = status;
+  if (status !== undefined && status !== 'authorized' && status !== 'revoked') {
+    return res.status(400).json({ error: 'Student status must be authorized or revoked.' });
   }
 
+  let cleanNewEmail: string | null = null;
   if (newEmail && typeof newEmail === 'string') {
-    const cleanNew = normalizeEmail(newEmail);
-    if (!isValidEmailFormat(cleanNew)) {
+    cleanNewEmail = normalizeEmail(newEmail);
+    if (!isValidEmailFormat(cleanNewEmail)) {
       return res.status(400).json({ error: 'New email format is invalid.' });
     }
-    approvedStudentsMap.delete(norm);
-    student.email = cleanNew;
-    approvedStudentsMap.set(cleanNew, student);
   }
 
-  student.updatedAt = now;
+  const { data: savedStudent, error: updateError } = await supabase.rpc(
+    'mycollege_admin_save_approved_student',
+    {
+      p_email: norm,
+      p_division_ids: replacementDivisionIds,
+      p_status: status || currentStudent.status,
+      p_new_email: cleanNewEmail,
+      p_replace_divisions: replacementDivisionIds !== null,
+    }
+  );
+  if (updateError || !savedStudent) {
+    console.error('Could not update approved student in Supabase:', updateError?.code);
+    return res.status(503).json({ error: 'Could not update this student record. Please try again.' });
+  }
+
+  const savedRosterEntry = savedStudent as {
+    email: string;
+    status: 'authorized' | 'revoked';
+    registered_user_id: string | null;
+    registered_at: string | null;
+    updated_at: string | null;
+    division_ids: string[];
+  };
+  const student: ApprovedStudent = {
+    email: normalizeEmail(savedRosterEntry.email),
+    divisionIds: savedRosterEntry.division_ids,
+    status: savedRosterEntry.status,
+    isRegistered: Boolean(savedRosterEntry.registered_user_id),
+    ...(savedRosterEntry.registered_user_id
+      ? { registeredUserId: savedRosterEntry.registered_user_id }
+      : {}),
+    createdAt: savedRosterEntry.registered_at || savedRosterEntry.updated_at || now,
+    updatedAt: savedRosterEntry.updated_at || now,
+  };
 
   auditLogs.unshift({
     id: `log-${Date.now()}`,
@@ -1395,74 +1670,121 @@ app.get('/api/me', (req: Request, res: Response) => {
   res.json({ user });
 });
 
-app.get('/api/users', (req: Request, res: Response) => {
+app.get('/api/users', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
   const institutionId = (req.query.institutionId as string) || currentUser.institutionId;
   if (institutionId !== currentUser.institutionId) {
     return res.status(403).json({ error: 'You cannot access users from another institution.' });
   }
 
-  const filtered = users.filter((u) => u.institutionId === institutionId);
-  const visibleUsers = currentUser.role === 'admin'
-    ? filtered
-    : filtered.map((user) => ({ ...user, phone: undefined }));
-  res.json({ users: visibleUsers });
+  const supabase = await getSupabaseClientForRequest(req);
+  if (!supabase) {
+    return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
+  }
+  const { data, error } = await supabase.rpc('mycollege_list_institution_users', {
+    p_institution_id: institutionId,
+  });
+  if (error || !data) {
+    console.error('Could not load the institution user directory:', error?.code);
+    return res.status(503).json({
+      error: 'Could not load the user directory. Apply the latest user-directory migration and try again.',
+    });
+  }
+
+  const directoryRows = data as Array<{
+    id: string;
+    institution_id: string;
+    full_name: string | null;
+    email: string;
+    role: string;
+    department_id: string | null;
+    designation: string | null;
+    username: string | null;
+    phone: string | null;
+    avatar_url: string | null;
+    is_verified: boolean;
+    is_profile_completed: boolean;
+    terms_accepted_at: string | null;
+    division_ids: string[];
+    roll_no: string | null;
+    academic_year: string | null;
+    course: string | null;
+  }>;
+  const unsupportedRole = directoryRows.find(
+    (row) => !['student', 'teacher', 'faculty', 'coordinator', 'admin'].includes(row.role)
+  );
+  if (unsupportedRole) {
+    console.error('The institution directory contains an unsupported profile role:', unsupportedRole.role);
+    return res.status(503).json({
+      error: 'The user directory contains a profile with an unsupported role. Please contact an administrator.',
+    });
+  }
+
+  const directoryUsers: User[] = directoryRows.map((row) => {
+    const cachedUser = users.find((candidate) => candidate.id === row.id);
+    const departmentId = row.department_id || cachedUser?.departmentId || '';
+    const divisionIds = row.division_ids || [];
+    const role = row.role === 'teacher' ? 'faculty' : row.role;
+
+    return {
+      ...(cachedUser || {
+        id: row.id,
+        institutionId: row.institution_id,
+        name: row.full_name || row.email.split('@')[0],
+        email: row.email,
+        role: role as UserRole,
+        departmentId,
+        interests: ['Academics'],
+        notificationPreferences: {
+          academic: true,
+          events: true,
+          deadlines: true,
+          clubs: true,
+        },
+        isVerified: row.is_verified,
+      }),
+      id: row.id,
+      institutionId: row.institution_id,
+      name: row.full_name || cachedUser?.name || row.email.split('@')[0],
+      email: row.email,
+      role: role as UserRole,
+      departmentId,
+      departmentName:
+        departments.find((department) => department.id === departmentId)?.name ||
+        cachedUser?.departmentName,
+      designation: row.designation || cachedUser?.designation,
+      username: row.username || cachedUser?.username,
+      phone: row.phone || undefined,
+      avatar: row.avatar_url || cachedUser?.avatar,
+      isVerified: row.is_verified,
+      isProfileCompleted: row.is_profile_completed,
+      termsAcceptedAt: row.terms_accepted_at || undefined,
+      rollNo: row.roll_no || cachedUser?.rollNo,
+      year: row.academic_year || cachedUser?.year,
+      course: row.course || cachedUser?.course,
+      divisionIds,
+      divisionNames: DIVISIONS.filter((division) => divisionIds.includes(division.id)).map(
+        (division) => division.name
+      ),
+      division: DIVISIONS.filter((division) => divisionIds.includes(division.id))
+        .map((division) => division.name)
+        .join(' & '),
+    };
+  });
+
+  res.json({ users: directoryUsers });
 });
 
-app.post('/api/users', async (req: Request, res: Response) => {
+app.post('/api/users', (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
   if (currentUser.role !== 'admin') {
     return res.status(403).json({ error: 'Only institutional administrators can register new accounts.' });
   }
 
-  const { name, email, role, departmentId, course, year } = req.body;
-  if (!name || !email || !role || !departmentId) {
-    return res.status(400).json({ error: 'Missing mandatory registration fields.' });
-  }
-
-  // Validate email domain against institution
-  const inst = institutions.find((i) => i.id === currentUser.institutionId);
-  const emailDomain = email.split('@')[1];
-  if (inst && !inst.allowedDomains.includes(emailDomain)) {
-    return res.status(400).json({
-      error: `Email domain @${emailDomain} is not authorized for ${inst.name}. Allowed: ${inst.allowedDomains.join(', ')}`,
-    });
-  }
-
-  const newUser: User = {
-    id: `user-${Date.now()}`,
-    institutionId: currentUser.institutionId,
-    name,
-    email,
-    role,
-    departmentId,
-    course,
-    year,
-    interests: ['Academics'],
-    notificationPreferences: {
-      academic: true,
-      events: true,
-      deadlines: true,
-      clubs: true,
-    },
-    isVerified: true,
-  };
-
-  users.push(newUser);
-
-  auditLogs.unshift({
-    id: `log-${Date.now()}`,
-    institutionId: currentUser.institutionId,
-    userId: currentUser.id,
-    userName: currentUser.name,
-    userRole: currentUser.role,
-    action: 'USER_REGISTERED',
-    details: `Admin created verified account ${name} (${role}) with email ${email}`,
-    timestamp: new Date().toISOString(),
+  return res.status(409).json({
+    error:
+      'Accounts must be provisioned from trusted records. Add students in the Approved Roster with their division assignments, or add faculty to the authorized faculty directory. The person can then sign in with email OTP.',
   });
-  await persistAuditLog(req, auditLogs[0]);
-
-  res.status(201).json({ user: newUser });
 });
 
 app.put('/api/users/:id/role', async (req: Request, res: Response) => {
@@ -1471,13 +1793,91 @@ app.put('/api/users/:id/role', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Administrative privileges required to modify user roles.' });
   }
 
-  const { role } = req.body as { role: UserRole };
-  const targetUser = users.find((u) => u.id === req.params.id);
-  if (!targetUser) {
-    return res.status(404).json({ error: 'User not found.' });
+  const { role } = req.body as { role?: unknown };
+  if (
+    typeof role !== 'string' ||
+    !['student', 'faculty', 'coordinator', 'admin'].includes(role)
+  ) {
+    return res.status(400).json({ error: 'Select a supported user role.' });
+  }
+  if (req.params.id === currentUser.id) {
+    return res.status(400).json({ error: 'Administrators cannot change their own role.' });
   }
 
-  targetUser.role = role;
+  const supabase = await getSupabaseClientForRequest(req);
+  if (!supabase) {
+    return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
+  }
+  const { data, error } = await supabase.rpc('mycollege_admin_update_profile_role', {
+    p_profile_id: req.params.id,
+    p_role: role,
+  });
+  if (error || !data) {
+    if (error?.code === 'P0002') return res.status(404).json({ error: 'User not found.' });
+    if (error?.code === '42501') {
+      return res.status(403).json({ error: 'You cannot change this user role.' });
+    }
+    console.error('Could not persist user role in Supabase:', error?.code);
+    return res.status(503).json({
+      error: 'Could not update this role. Apply the latest user-directory migration and try again.',
+    });
+  }
+
+  const updatedProfile = data as {
+    id: string;
+    institution_id: string;
+    full_name: string | null;
+    email: string;
+    role: UserRole;
+    department_id: string | null;
+    designation: string | null;
+    username: string | null;
+    avatar_url: string | null;
+    is_verified: boolean;
+    is_profile_completed: boolean;
+    terms_accepted_at: string | null;
+  };
+  const targetUser = users.find((u) => u.id === req.params.id);
+  const updatedUser: User = {
+    ...(targetUser || {
+      id: updatedProfile.id,
+      institutionId: updatedProfile.institution_id,
+      name: updatedProfile.full_name || updatedProfile.email.split('@')[0],
+      email: updatedProfile.email,
+      role: updatedProfile.role,
+      departmentId: updatedProfile.department_id || '',
+      interests: ['Academics'],
+      notificationPreferences: {
+        academic: true,
+        events: true,
+        deadlines: true,
+        clubs: true,
+      },
+      isVerified: updatedProfile.is_verified,
+    }),
+    id: updatedProfile.id,
+    institutionId: updatedProfile.institution_id,
+    name: updatedProfile.full_name || targetUser?.name || updatedProfile.email.split('@')[0],
+    email: updatedProfile.email,
+    role: updatedProfile.role,
+    departmentId: updatedProfile.department_id || targetUser?.departmentId || '',
+    departmentName:
+      departments.find((department) => department.id === updatedProfile.department_id)?.name ||
+      targetUser?.departmentName,
+    designation: updatedProfile.designation || targetUser?.designation,
+    username: updatedProfile.username || targetUser?.username,
+    avatar: updatedProfile.avatar_url || targetUser?.avatar,
+    isVerified: updatedProfile.is_verified,
+    isProfileCompleted: updatedProfile.is_profile_completed,
+    termsAcceptedAt: updatedProfile.terms_accepted_at || undefined,
+  };
+  const cachedUserIndex = users.findIndex((user) => user.id === updatedUser.id);
+  if (cachedUserIndex === -1) users.push(updatedUser);
+  else users[cachedUserIndex] = updatedUser;
+
+  for (const [token, session] of activeSessions) {
+    if (session.userId === updatedUser.id) activeSessions.delete(token);
+  }
 
   auditLogs.unshift({
     id: `log-${Date.now()}`,
@@ -1486,12 +1886,12 @@ app.put('/api/users/:id/role', async (req: Request, res: Response) => {
     userName: currentUser.name,
     userRole: currentUser.role,
     action: 'USER_ROLE_UPDATED',
-    details: `Updated role of ${targetUser.name} to ${role}`,
+    details: `Updated role of ${updatedUser.name} to ${role}`,
     timestamp: new Date().toISOString(),
   });
   await persistAuditLog(req, auditLogs[0]);
 
-  res.json({ user: targetUser });
+  res.json({ user: updatedUser });
 });
 
 // Update user preferences & interests
@@ -4707,33 +5107,44 @@ app.post('/api/channels/:id/announcements', async (req: Request, res: Response) 
 });
 
 // 12. Student Batch Directory Summary
-app.get('/api/batch-directory', (req: Request, res: Response) => {
+app.get('/api/batch-directory', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
   const institutionId = (req.query.institutionId as string) || currentUser.institutionId;
   if (institutionId !== currentUser.institutionId) {
     return res.status(403).json({ error: 'You cannot view another institution’s batch summary.' });
   }
-  const departmentId = req.query.departmentId as string;
+  const departmentId = req.query.departmentId as string | undefined;
   const division = req.query.division as string;
   const year = req.query.year as string;
-
-  let list = users.filter((u) => u.institutionId === institutionId && u.role === 'student');
-
-  if (departmentId && departmentId !== 'all') {
-    list = list.filter((u) => u.departmentId === departmentId);
+  const divisionIds: Record<string, string> = {
+    'Div A': DIVISION_IDS.a,
+    'Div B': DIVISION_IDS.b,
+  };
+  if (division && division !== 'all' && !divisionIds[division]) {
+    return res.status(400).json({ error: 'Select a valid division.' });
   }
-  if (division && division !== 'all') {
-    const divisionId = division === 'Div A' ? DIVISION_IDS.a : division === 'Div B' ? DIVISION_IDS.b : null;
-    list = list.filter(
-      (u) => u.division === division || (divisionId !== null && u.divisionIds?.includes(divisionId))
-    );
-  }
-  if (year && year !== 'all') {
-    const matchingYears = year === '2nd Year' || year === 'Second Year' ? ['2nd Year', 'Second Year'] : [year];
-    list = list.filter((u) => u.year !== undefined && matchingYears.includes(u.year));
+  if (departmentId && departmentId !== 'all' && !/^[0-9a-f-]{36}$/i.test(departmentId)) {
+    return res.status(400).json({ error: 'Select a valid department.' });
   }
 
-  res.json({ total: list.length });
+  const supabase = await getSupabaseClientForRequest(req);
+  if (!supabase) {
+    return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
+  }
+  const { data, error } = await supabase.rpc('mycollege_count_batch_students', {
+    p_institution_id: institutionId,
+    p_department_id: !departmentId || departmentId === 'all' ? null : departmentId,
+    p_division_id: !division || division === 'all' ? null : divisionIds[division],
+    p_academic_year: !year || year === 'all' ? null : year,
+  });
+  if (error || data === null) {
+    console.error('Could not load persisted batch directory summary:', error?.code);
+    return res.status(503).json({
+      error: 'Could not load the batch summary. Apply the latest batch-directory migration and try again.',
+    });
+  }
+
+  res.json({ total: Number(data) });
 });
 
 app.post('/api/batch-directory/students', async (req: Request, res: Response) => {
@@ -4776,17 +5187,6 @@ app.post('/api/batch-directory/students', async (req: Request, res: Response) =>
   if (!institution || !institution.allowedDomains.some((domain) => domain.toLowerCase() === emailDomain)) {
     return res.status(400).json({ error: 'Student email must use an authorized institutional email domain.' });
   }
-  if (users.some((user) => normalizeEmail(user.email) === cleanEmail)) {
-    return res.status(409).json({ error: 'A user with this email address already exists.' });
-  }
-  if (users.some(
-    (user) =>
-      user.institutionId === currentUser.institutionId &&
-      user.rollNo?.toLowerCase() === cleanRollNo.toLowerCase()
-  )) {
-    return res.status(409).json({ error: 'A student with this roll number already exists.' });
-  }
-
   const department = departments.find(
     (item) => item.id === departmentId && item.institutionId === currentUser.institutionId
   );
@@ -4798,53 +5198,42 @@ app.post('/api/batch-directory/students', async (req: Request, res: Response) =>
   }
 
   const divisionId = cleanDivision === 'Div A' ? DIVISION_IDS.a : DIVISION_IDS.b;
-  const divisionName = DIVISIONS.find((item) => item.id === divisionId)?.name || cleanDivision;
-  const user: User = {
-    id: `user-${crypto.randomUUID()}`,
-    institutionId: currentUser.institutionId,
-    name: cleanName,
-    email: cleanEmail,
-    role: 'student',
-    departmentId: department.id,
-    departmentName: department.name,
-    course: department.courses[0],
-    year: cleanYear,
-    division: cleanDivision,
-    divisionIds: [divisionId],
-    divisionNames: [divisionName],
-    rollNo: cleanRollNo,
-    phone: cleanPhone || undefined,
-    interests: ['Academics'],
-    notificationPreferences: {
-      academic: true,
-      events: true,
-      deadlines: true,
-      clubs: true,
-    },
-    isVerified: true,
-    isProfileCompleted: true,
-  };
-  users.push(user);
-
-  const now = new Date().toISOString();
-  approvedStudentsMap.set(cleanEmail, {
-    email: cleanEmail,
-    divisionIds: [divisionId],
-    status: 'authorized',
-    isRegistered: true,
-    registeredUserId: user.id,
-    registeredName: cleanName,
-    createdAt: now,
-    updatedAt: now,
+  const supabase = await getSupabaseClientForRequest(req);
+  if (!supabase) {
+    return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
+  }
+  const { error: addStudentError } = await supabase.rpc('mycollege_add_batch_student', {
+    p_name: cleanName,
+    p_email: cleanEmail,
+    p_roll_no: cleanRollNo,
+    p_department_id: department.id,
+    p_year: cleanYear,
+    p_division_id: divisionId,
+    p_phone: cleanPhone || null,
   });
-
-  const divisionChannel = chatChannels.find((channel) => channel.divisionId === divisionId);
-  if (divisionChannel) {
-    divisionChannel.memberIds ||= [];
-    divisionChannel.memberIds.push(user.id);
-    divisionChannel.memberCount = divisionChannel.memberIds.length;
+  if (addStudentError) {
+    if (addStudentError.code === '23505') {
+      return res.status(409).json({
+        error: addStudentError.message.includes('roll number')
+          ? 'A student with this roll number already exists.'
+          : addStudentError.message.includes('profile already exists')
+            ? 'A user with this email address already exists.'
+            : 'This email is already registered or authorized.',
+      });
+    }
+    if (addStudentError.code === '42501') {
+      return res.status(403).json({ error: 'Only faculty or administrators can add students to a batch.' });
+    }
+    if (addStudentError.code === '22023') {
+      return res.status(400).json({ error: 'The selected department or division is invalid.' });
+    }
+    console.error('Could not persist the new batch student:', addStudentError.code);
+    return res.status(503).json({
+      error: 'Could not save this student to the database. Apply the latest batch-directory migration and try again.',
+    });
   }
 
+  const now = new Date().toISOString();
   auditLogs.unshift({
     id: `log-${Date.now()}`,
     institutionId: currentUser.institutionId,
@@ -4892,50 +5281,73 @@ function announcementTargetsUser(user: User, announcement: Announcement): boolea
 }
 
 wss.on('connection', (ws, req) => {
-  if (!hasSameOrigin(req)) {
-    ws.close(1008, 'Origin not allowed');
-    return;
-  }
+  void (async () => {
+    if (!hasSameOrigin(req)) {
+      ws.close(1008, 'Origin not allowed');
+      return;
+    }
 
-  const token = getSessionTokenFromRequest(req);
-  const session = token ? activeSessions.get(token) : undefined;
-  const user = session && Date.now() < session.expiresAt
-    ? users.find((candidate) => candidate.id === session.userId)
-    : undefined;
+    const token = getSessionTokenFromRequest(req);
+    if (!token) {
+      ws.close(1008, 'Authentication required');
+      return;
+    }
 
-  if (!session || !user || !token) {
-    ws.close(1008, 'Authentication required');
-    return;
-  }
-
-  clientSockets.set(ws, token);
-  ws.send(JSON.stringify({ type: 'auth:ok' }));
-
-  ws.on('message', (raw) => {
-    let data: unknown;
+    let session = activeSessions.get(token);
     try {
-      data = JSON.parse(raw.toString());
-    } catch {
+      if (!session) {
+        session = (await loadSessionRecord(token)) || undefined;
+        if (session) {
+          activeSessions.set(token, session);
+          if (!users.some((candidate) => candidate.id === session?.userId)) {
+            users.push(session.userSnapshot);
+          }
+        }
+      }
+    } catch (restoreError) {
+      console.error('Could not restore the WebSocket session:', restoreError);
+      ws.close(1011, 'Session validation unavailable');
       return;
     }
-    if (typeof data !== 'object' || data === null || Array.isArray(data)) return;
-    const message = data as { type?: unknown };
-    const token = clientSockets.get(ws);
-    const session = token ? activeSessions.get(token) : undefined;
-    if (!session || Date.now() >= session.expiresAt) {
+
+    const user = session && Date.now() < session.expiresAt
+      ? users.find((candidate) => candidate.id === session.userId)
+      : undefined;
+    if (!session || !user) {
+      ws.close(1008, 'Authentication required');
+      return;
+    }
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    clientSockets.set(ws, token);
+    ws.send(JSON.stringify({ type: 'auth:ok' }));
+
+    ws.on('message', (raw) => {
+      let data: unknown;
+      try {
+        data = JSON.parse(raw.toString());
+      } catch {
+        return;
+      }
+      if (typeof data !== 'object' || data === null || Array.isArray(data)) return;
+      const message = data as { type?: unknown };
+      const token = clientSockets.get(ws);
+      const session = token ? activeSessions.get(token) : undefined;
+      if (!session || Date.now() >= session.expiresAt) {
+        clientSockets.delete(ws);
+        ws.close(1008, 'Session expired');
+        return;
+      }
+
+      if (message.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }));
+      }
+    });
+
+    ws.on('close', () => {
       clientSockets.delete(ws);
-      ws.close(1008, 'Session expired');
-      return;
-    }
-
-    if (message.type === 'ping') {
-      ws.send(JSON.stringify({ type: 'pong' }));
-    }
-  });
-
-  ws.on('close', () => {
-    clientSockets.delete(ws);
-  });
+    });
+  })();
 });
 
 function broadcastToInstitution(institutionId: string, payload: {

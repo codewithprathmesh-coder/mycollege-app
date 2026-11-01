@@ -19,7 +19,9 @@ export const BatchDirectoryView: React.FC<BatchDirectoryViewProps> = ({
   const [studentCount, setStudentCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selectedDept, setSelectedDept] = useState('dept-aids');
+  const [selectedDept, setSelectedDept] = useState(
+    currentUser.departmentId || departments[0]?.id || 'all'
+  );
   const [selectedDivision, setSelectedDivision] = useState(() => {
     if (currentUser.role !== 'student') return 'Div A';
     const divisionIds = currentUser.divisionIds ?? [];
@@ -39,7 +41,9 @@ export const BatchDirectoryView: React.FC<BatchDirectoryViewProps> = ({
   const [studentEmail, setStudentEmail] = useState('');
   const [studentPhone, setStudentPhone] = useState('');
   const [studentRollNo, setStudentRollNo] = useState('');
-  const [studentDepartmentId, setStudentDepartmentId] = useState('dept-aids');
+  const [studentDepartmentId, setStudentDepartmentId] = useState(
+    currentUser.departmentId || departments[0]?.id || ''
+  );
   const [studentYear, setStudentYear] = useState('3rd Year');
   const [studentDivision, setStudentDivision] = useState('Div A');
   const [isAddingStudent, setIsAddingStudent] = useState(false);
@@ -157,9 +161,9 @@ export const BatchDirectoryView: React.FC<BatchDirectoryViewProps> = ({
             aria-label="Filter by department"
             className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 font-medium focus:border-blue-500 outline-none"
           >
-            <option value="dept-aids">AI & Data Science (AIDS)</option>
-            <option value="dept-comp">Computer Engineering</option>
-            <option value="dept-it">Information Technology</option>
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>{department.name}</option>
+            ))}
             <option value="all">All Departments</option>
           </select>
 

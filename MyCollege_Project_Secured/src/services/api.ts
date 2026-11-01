@@ -66,20 +66,6 @@ export const api = {
     return request(`/api/users${q}`);
   },
 
-  async createUser(payload: {
-    name: string;
-    email: string;
-    role: UserRole;
-    departmentId: string;
-    course?: string;
-    year?: string;
-  }): Promise<{ user: User }> {
-    return request('/api/users', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-  },
-
   async updateUserRole(id: string, role: UserRole): Promise<{ user: User }> {
     return request(`/api/users/${id}/role`, {
       method: 'PUT',

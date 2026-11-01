@@ -30,7 +30,6 @@ import type {
   ApprovedDatasetReport,
   ApprovedStudent,
   AuditLog,
-  Department,
   Institution,
   PlatformStats,
   User,
@@ -43,7 +42,6 @@ interface AdminConsoleViewProps {
   currentInstitution: Institution;
   announcements: Announcement[];
   users: User[];
-  departments: Department[];
   onApproveAnnouncement: (id: string) => Promise<void>;
   onRejectAnnouncement: (id: string, reason?: string) => Promise<void>;
   onOpenDetails: (announcement: Announcement) => void;
@@ -57,7 +55,6 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
   currentInstitution,
   announcements,
   users,
-  departments,
   onApproveAnnouncement,
   onRejectAnnouncement,
   onOpenDetails,
@@ -74,11 +71,6 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
   // User management
   const [userSearch, setUserSearch] = useState('');
   const [showAddUser, setShowAddUser] = useState(false);
-  const [newUserName, setNewUserName] = useState('');
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserRole, setNewUserRole] = useState<UserRole>('student');
-  const [newUserDept, setNewUserDept] = useState(departments[0]?.id || 'dept-comp');
-  const [userError, setUserError] = useState<string | null>(null);
 
   // Settings
   const [requireApproval, setRequireApproval] = useState(currentInstitution.requireApproval);
@@ -221,26 +213,6 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
       await loadStatsAndLogs();
     } finally {
       setProcessingId(null);
-    }
-  };
-
-  const handleAddUserSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setUserError(null);
-    try {
-      await api.createUser({
-        name: newUserName,
-        email: newUserEmail,
-        role: newUserRole,
-        departmentId: newUserDept,
-      });
-      setShowAddUser(false);
-      setNewUserName('');
-      setNewUserEmail('');
-      await onRefreshData();
-      await loadStatsAndLogs();
-    } catch (err: any) {
-      setUserError(err.message || 'Failed to create user');
     }
   };
 
@@ -543,94 +515,23 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs sm:text-sm rounded-lg flex items-center gap-2 self-start sm:self-auto"
               >
                 <Plus className="w-4 h-4" />
-                <span>Register Verified User</span>
+                <span>Account setup</span>
               </button>
             </div>
 
-            {/* Add User Form Drawer */}
             {showAddUser && (
-              <form
-                onSubmit={handleAddUserSubmit}
-                className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs"
-              >
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2 text-xs">
                 <div className="font-bold text-sm text-slate-900">
-                  Register New Verified College Account
+                  Accounts come from trusted college records
                 </div>
-                {userError && (
-                  <div className="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-700">
-                    {userError}
-                  </div>
-                )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Full Name</label>
-                    <input
-                      type="text"
-                      required
-                      value={newUserName}
-                      onChange={(e) => setNewUserName(e.target.value)}
-                      placeholder="Prof. Rohit Mehta"
-                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1">
-                      Institutional Email (@{currentInstitution.domain})
-                    </label>
-                    <input
-                      type="email"
-                      required
-                      value={newUserEmail}
-                      onChange={(e) => setNewUserEmail(e.target.value)}
-                      placeholder={`rohit@${currentInstitution.domain}`}
-                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Role</label>
-                    <select
-                      value={newUserRole}
-                      onChange={(e) => setNewUserRole(e.target.value as UserRole)}
-                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded bg-white"
-                    >
-                      <option value="student">Student</option>
-                      <option value="faculty">Faculty Member</option>
-                      <option value="coordinator">Student Coordinator</option>
-                      <option value="admin">Administrator</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-1">Department</label>
-                    <select
-                      value={newUserDept}
-                      onChange={(e) => setNewUserDept(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-200 rounded bg-white"
-                    >
-                      {departments.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowAddUser(false)}
-                    className="px-3 py-1.5 text-slate-600"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-1.5 bg-indigo-600 text-white rounded font-semibold"
-                  >
-                    Register Account
-                  </button>
-                </div>
-              </form>
+                <p className="text-slate-600">
+                  Add students in the Approved Roster and assign their divisions. Add faculty to the authorized faculty directory.
+                  Once their record is active, they can sign in using email OTP and their profile will appear here.
+                </p>
+                <p className="text-slate-600">
+                  Do not register an account or grant a role by creating a profile directly. Role changes below are saved to the database and require the user to sign in again.
+                </p>
+              </div>
             )}
 
             {/* Users Table */}

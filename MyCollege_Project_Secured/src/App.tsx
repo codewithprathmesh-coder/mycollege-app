@@ -1074,7 +1074,6 @@ const toggleTheme = () => {
             currentInstitution={currentInstitution}
             announcements={announcements}
             users={allUsers}
-            departments={departments}
             onApproveAnnouncement={handleApproveAnnouncement}
             onRejectAnnouncement={handleRejectAnnouncement}
             onOpenDetails={handleOpenAnnouncement}
