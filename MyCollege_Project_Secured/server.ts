@@ -960,12 +960,27 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
   }
 
   const facultyDetails = facultyDetailsByEmail.get(norm);
-  const { data: authData, error: authError } = await supabaseAuth.auth.verifyOtp({
-    email: norm,
-    token: cleanCode,
-    type: otpVerificationTypes.get(norm) || 'email',
-  });
-  if (authError || !authData.user || !authData.session) {
+  let authData: { user: any; session: any } | null = null;
+  let authError: any = null;
+
+  const typesToTry: ('email' | 'signup')[] = ['email', 'signup'];
+
+  for (const t of typesToTry) {
+    const attempt = await supabaseAuth.auth.verifyOtp({
+      email: norm,
+      token: cleanCode,
+      type: t,
+    });
+    if (!attempt.error && attempt.data.user && attempt.data.session) {
+      authData = attempt.data;
+      authError = null;
+      break;
+    } else {
+      authError = attempt.error;
+    }
+  }
+
+  if (authError || !authData?.user || !authData?.session) {
     console.warn('[AUTH] Supabase OTP verification failed:', authError?.code || authError?.status);
     return res.status(400).json({ error: 'The verification code is invalid or expired. Request a new code and try again.' });
   }
