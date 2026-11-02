@@ -871,76 +871,64 @@ app.post('/api/auth/request-otp', async (req: Request, res: Response) => {
   }
 
   let verificationType: 'email' | 'magiclink' = 'email';
-  if (smtpConfigured && supabaseAdmin && smtpFromEmail) {
-    let linkResult;
-    try {
-      linkResult = await withTimeout(supabaseAdmin.auth.admin.generateLink({
-        type: 'signup',
-        email: norm,
-        password: crypto.randomBytes(32).toString('hex'),
-      }), 12_000);
-    } catch (error) {
-      const errorCode = error instanceof Error && error.message === 'OPERATION_TIMEOUT'
-        ? 'SUPABASE_AUTH_TIMEOUT'
-        : 'SUPABASE_AUTH_REQUEST_FAILED';
-      console.warn('[AUTH] Supabase OTP generation failed:', errorCode);
-      return res.status(503).json({ error: 'We could not prepare the verification email in time. Please try again later.' });
-    }
+  let otpDelivered = false;
 
-    const alreadyRegistered = linkResult.error && (
-      ['user_already_exists', 'email_exists'].includes(linkResult.error.code || '') ||
-      linkResult.error.message.toLowerCase().includes('already registered')
-    );
-    if (alreadyRegistered) {
-      try {
-        linkResult = await withTimeout(supabaseAdmin.auth.admin.generateLink({
-          type: 'magiclink',
-          email: norm,
-        }), 12_000);
-      } catch (error) {
-        const errorCode = error instanceof Error && error.message === 'OPERATION_TIMEOUT'
-          ? 'SUPABASE_AUTH_TIMEOUT'
-          : 'SUPABASE_AUTH_REQUEST_FAILED';
-        console.warn('[AUTH] Supabase OTP generation failed:', errorCode);
-        return res.status(503).json({ error: 'We could not prepare the verification email in time. Please try again later.' });
-      }
-      verificationType = 'magiclink';
-    }
+  // 1. Primary: Deliver via Supabase Auth (which routes through Brevo custom SMTP)
+  const { error: otpError } = await supabaseAuth.auth.signInWithOtp({
+    email: norm,
+    options: { shouldCreateUser: true },
+  });
 
-    if (linkResult.error || !linkResult.data?.properties.email_otp) {
-      console.warn('[AUTH] Supabase OTP generation failed:', linkResult.error?.code || linkResult.error?.status);
-      return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
-    }
-
-    const code = linkResult.data.properties.email_otp;
-    const message = {
-      from: `"MyCollege Security" <${smtpFromEmail}>`,
-      to: norm,
-      subject: 'Your MyCollege verification code',
-      text: `Your MyCollege verification code is ${code}. It expires in 5 minutes. Do not share this code with anyone.`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px;color:#0f172a"><h2>MyCollege verification</h2><p>Your single-use verification code is:</p><p style="font-size:32px;font-weight:bold;letter-spacing:6px;color:#2563eb">${code}</p><p>This code expires in 5 minutes. If you did not request it, you can ignore this email.</p></div>`,
-    };
-
-    if (smtpTransporter) {
-      try {
-        await smtpTransporter.sendMail(message);
-      } catch (sendError) {
-        const errorCode = sendError instanceof Error && 'code' in sendError && typeof sendError.code === 'string'
-          ? sendError.code
-          : 'SMTP_DELIVERY_FAILED';
-        console.warn('[AUTH] SMTP OTP delivery failed:', errorCode);
-        return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
-      }
-    }
+  if (!otpError) {
+    otpDelivered = true;
+    verificationType = 'email';
   } else {
-    const { error } = await supabaseAuth.auth.signInWithOtp({
-      email: norm,
-      options: { shouldCreateUser: true },
-    });
-    if (error) {
-      console.warn('[AUTH] Supabase OTP request failed:', error.code || error.status);
-      return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
+    console.warn('[AUTH] Supabase Auth signInWithOtp failed, trying direct SMTP fallback:', otpError.message || otpError.code);
+
+    // 2. Fallback: Direct server SMTP if configured
+    if (smtpConfigured && supabaseAdmin && smtpFromEmail) {
+      try {
+        let linkResult = await withTimeout(supabaseAdmin.auth.admin.generateLink({
+          type: 'signup',
+          email: norm,
+          password: crypto.randomBytes(32).toString('hex'),
+        }), 12_000);
+
+        const alreadyRegistered = linkResult.error && (
+          ['user_already_exists', 'email_exists'].includes(linkResult.error.code || '') ||
+          linkResult.error.message.toLowerCase().includes('already registered')
+        );
+
+        if (alreadyRegistered) {
+          linkResult = await withTimeout(supabaseAdmin.auth.admin.generateLink({
+            type: 'magiclink',
+            email: norm,
+          }), 12_000);
+          verificationType = 'magiclink';
+        }
+
+        if (linkResult.data?.properties?.email_otp && smtpTransporter) {
+          const code = linkResult.data.properties.email_otp;
+          const message = {
+            from: `"MyCollege Security" <${smtpFromEmail}>`,
+            to: norm,
+            subject: 'Your MyCollege verification code',
+            text: `Your MyCollege verification code is ${code}. It expires in 5 minutes. Do not share this code with anyone.`,
+            html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px;color:#0f172a"><h2>MyCollege verification</h2><p>Your single-use verification code is:</p><p style="font-size:32px;font-weight:bold;letter-spacing:6px;color:#2563eb">${code}</p><p>This code expires in 5 minutes. If you did not request it, you can ignore this email.</p></div>`,
+          };
+          await smtpTransporter.sendMail(message);
+          otpDelivered = true;
+        }
+      } catch (fallbackError) {
+        console.warn('[AUTH] Direct SMTP fallback also failed:', fallbackError);
+      }
     }
+  }
+
+  if (!otpDelivered) {
+    return res.status(503).json({
+      error: 'We could not deliver the verification email. Please try again later.',
+    });
   }
 
   otpVerificationTypes.set(norm, verificationType);
