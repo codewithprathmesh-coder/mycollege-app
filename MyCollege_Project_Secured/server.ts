@@ -944,10 +944,29 @@ app.post('/api/auth/request-otp', async (req: Request, res: Response) => {
           signal: controller.signal,
         });
         if (!response.ok) {
-          console.warn('[AUTH] Resend OTP delivery failed:', response.status);
-          const error = response.status === 403
-            ? 'The email sender is not authorized for this recipient. Verify a sending domain in Resend and use an address from that domain.'
-            : 'We could not deliver the verification email. Please try again later.';
+          let providerError: { name?: unknown; message?: unknown } = {};
+          try {
+            const body: unknown = await response.json();
+            if (body && typeof body === 'object') {
+              const details = body as Record<string, unknown>;
+              providerError = {
+                name: details.name,
+                message: details.message,
+              };
+            }
+          } catch {
+            // Some upstream failures return a non-JSON response.
+          }
+          const errorName = typeof providerError.name === 'string' ? providerError.name : 'UNKNOWN';
+          const errorMessage = typeof providerError.message === 'string'
+            ? providerError.message.slice(0, 300)
+            : '';
+          console.warn('[AUTH] Resend OTP delivery failed:', response.status, errorName);
+          const error = errorMessage
+            ? `Resend rejected the verification email: ${errorMessage}`
+            : response.status === 403
+              ? 'The sender is not authorized for this recipient. Verify a sending domain in Resend and use an address from that domain.'
+              : 'We could not deliver the verification email. Please try again later.';
           return res.status(503).json({ error });
         }
       } catch (sendError) {
