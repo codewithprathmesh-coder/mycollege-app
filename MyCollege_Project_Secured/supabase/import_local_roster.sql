@@ -276,7 +276,8 @@ values
   ('skasar@somaiya.edu', 'Mr. Sudhir Kasar', 'Skilled Asst.'),
   ('kpashte@somaiya.edu', 'Ms. Kavita Pashte', 'Tech.Asst.'),
   ('sdhale@somaiya.edu', 'Mr. Sachin Dhale', 'Lab.Asst.'),
-  ('bharati@somaiya.edu', 'Ms. Bharati Sansare', 'Lab.Asst.');
+  ('bharati@somaiya.edu', 'Ms. Bharati Sansare', 'Lab.Asst.'),
+  ('lokmat874@gmail.com', 'lokmat', 'trial');
 
 update public.faculty_directory as f
 set institution_id = '00000000-0000-4000-8000-000000000001',

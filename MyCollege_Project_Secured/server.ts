@@ -1,9 +1,10 @@
- import { createAuthenticatedSupabaseClient, supabaseAuth } from './supabaseAuthClient';
+ import { createAuthenticatedSupabaseClient, createSupabaseAdminClient, supabaseAuth } from './supabaseAuthClient';
  import express, { Request, Response } from 'express';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import dotenv from 'dotenv';
-import path from 'path';
+ import nodemailer from 'nodemailer';
+ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
@@ -47,6 +48,23 @@ import type {
 } from './src/types/index.ts';
 
 dotenv.config();
+
+const supabaseAdmin = createSupabaseAdminClient();
+const smtpHost = process.env.SMTP_HOST?.trim();
+const smtpUser = process.env.SMTP_USER?.trim();
+const smtpPass = process.env.SMTP_PASS?.trim();
+const smtpPort = Number(process.env.SMTP_PORT) || 587;
+const smtpTransporter = smtpHost && smtpUser && smtpPass
+  ? nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass },
+    })
+  : null;
+if (smtpTransporter && !supabaseAdmin) {
+  console.warn('[AUTH] SMTP OTP delivery requires SUPABASE_SERVICE_ROLE_KEY; using Supabase Auth email delivery instead.');
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -126,6 +144,7 @@ interface OtpRequestLimit {
 }
 
 const otpRequestLimits = new Map<string, OtpRequestLimit>();
+const otpVerificationTypes = new Map<string, 'email' | 'magiclink'>();
 
 const activeSessions = new Map<string, SessionRecord>();
 
@@ -825,15 +844,59 @@ app.post('/api/auth/request-otp', async (req: Request, res: Response) => {
     }
   }
 
-  const { error } = await supabaseAuth.auth.signInWithOtp({
-    email: norm,
-    options: { shouldCreateUser: true },
-  });
-  if (error) {
-    console.warn('[AUTH] Supabase OTP request failed:', error.code || error.status);
-    return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
+  let verificationType: 'email' | 'magiclink' = 'email';
+  if (smtpTransporter && supabaseAdmin) {
+    let linkResult = await supabaseAdmin.auth.admin.generateLink({
+      type: 'signup',
+      email: norm,
+      password: crypto.randomBytes(32).toString('hex'),
+    });
+
+    const alreadyRegistered = linkResult.error && (
+      ['user_already_exists', 'email_exists'].includes(linkResult.error.code || '') ||
+      linkResult.error.message.toLowerCase().includes('already registered')
+    );
+    if (alreadyRegistered) {
+      linkResult = await supabaseAdmin.auth.admin.generateLink({
+        type: 'magiclink',
+        email: norm,
+      });
+      verificationType = 'magiclink';
+    }
+
+    if (linkResult.error || !linkResult.data?.properties.email_otp) {
+      console.warn('[AUTH] Supabase OTP generation failed:', linkResult.error?.code || linkResult.error?.status);
+      return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
+    }
+
+    const code = linkResult.data.properties.email_otp;
+    try {
+      await smtpTransporter.sendMail({
+        from: `"MyCollege Security" <${smtpUser}>`,
+        to: norm,
+        subject: 'Your MyCollege verification code',
+        text: `Your MyCollege verification code is ${code}. It expires in 5 minutes. Do not share this code with anyone.`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px;color:#0f172a"><h2>MyCollege verification</h2><p>Your single-use verification code is:</p><p style="font-size:32px;font-weight:bold;letter-spacing:6px;color:#2563eb">${code}</p><p>This code expires in 5 minutes. If you did not request it, you can ignore this email.</p></div>`,
+      });
+    } catch (sendError) {
+      const errorCode = sendError instanceof Error && 'code' in sendError && typeof sendError.code === 'string'
+        ? sendError.code
+        : 'SMTP_DELIVERY_FAILED';
+      console.warn('[AUTH] SMTP OTP delivery failed:', errorCode);
+      return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
+    }
+  } else {
+    const { error } = await supabaseAuth.auth.signInWithOtp({
+      email: norm,
+      options: { shouldCreateUser: true },
+    });
+    if (error) {
+      console.warn('[AUTH] Supabase OTP request failed:', error.code || error.status);
+      return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
+    }
   }
 
+  otpVerificationTypes.set(norm, verificationType);
   otpRequestLimits.set(norm, {
     lastRequestedAt: now,
     requestCountInWindow: (existing?.requestCountInWindow || 0) + 1,
@@ -865,12 +928,13 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
   const { data: authData, error: authError } = await supabaseAuth.auth.verifyOtp({
     email: norm,
     token: cleanCode,
-    type: 'email',
+    type: otpVerificationTypes.get(norm) || 'email',
   });
   if (authError || !authData.user || !authData.session) {
     console.warn('[AUTH] Supabase OTP verification failed:', authError?.code || authError?.status);
     return res.status(400).json({ error: 'The verification code is invalid or expired. Request a new code and try again.' });
   }
+  otpVerificationTypes.delete(norm);
 
   const userSupabase = createAuthenticatedSupabaseClient(authData.session.access_token);
   const { data: isAuthorized, error: authorizationError } = await userSupabase

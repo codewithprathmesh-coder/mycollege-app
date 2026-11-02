@@ -12,9 +12,11 @@ Prerequisite: Node.js.
    server loads `.env`; putting server secrets only in `.env.local` will not
    configure the server. Keep `.env` private and never commit it.
    - Configure `GEMINI_API_KEY` to enable AI summarization.
-   - Email OTP delivery is handled by Supabase Auth. Configure the SMTP provider
-     in the Supabase Dashboard; do not put those SMTP credentials in browser
-     variables or share them in source control.
+   - Email OTPs are generated and verified by Supabase Auth, then delivered by
+     the server's SMTP transport. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and
+     `SMTP_PASS` in `.env`; keep these credentials server-side. This delivery
+     path also requires `SUPABASE_SERVICE_ROLE_KEY`. If SMTP is not configured,
+     the server falls back to Supabase Auth's configured email provider.
    - Configure `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` for the server's
      Supabase health check. These values do not connect the app's in-memory
      application data to the database.

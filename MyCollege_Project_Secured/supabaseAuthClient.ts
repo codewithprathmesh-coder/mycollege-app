@@ -28,6 +28,19 @@ export const supabaseAuth = createClient(
   }
 );
 
+export function createSupabaseAdminClient() {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!serviceRoleKey) return null;
+
+  return createClient(supabaseConfig.url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
 export function createAuthenticatedSupabaseClient(accessToken: string) {
   return createClient(supabaseConfig.url, supabaseConfig.key, {
     global: {
