@@ -53,13 +53,8 @@ const supabaseAdmin = createSupabaseAdminClient();
 const smtpHost = process.env.SMTP_HOST?.trim();
 const smtpUser = process.env.SMTP_USER?.trim();
 const smtpPass = process.env.SMTP_PASS?.trim();
-const smtpFromEmail = process.env.RESEND_FROM_EMAIL?.trim() ||
-  process.env.SMTP_FROM_EMAIL?.trim() ||
+const smtpFromEmail = process.env.SMTP_FROM_EMAIL?.trim() ||
   (smtpUser?.includes('@') ? smtpUser : null);
-const resendApiKey = process.env.RESEND_API_KEY?.trim() ||
-  (smtpHost?.toLowerCase() === 'smtp.resend.com' || smtpUser?.toLowerCase() === 'resend' || smtpPass?.startsWith('re_')
-    ? smtpPass
-    : undefined);
 const smtpPort = Number(process.env.SMTP_PORT) || 587;
 const smtpTransporter = smtpHost && smtpUser && smtpPass
   ? nodemailer.createTransport({
@@ -72,9 +67,8 @@ const smtpTransporter = smtpHost && smtpUser && smtpPass
       socketTimeout: 15_000,
     })
   : null;
-const resendConfigured = Boolean(resendApiKey && smtpFromEmail);
 const smtpConfigured = Boolean(smtpTransporter && smtpFromEmail);
-if ((resendConfigured || smtpConfigured) && !supabaseAdmin) {
+if (smtpConfigured && !supabaseAdmin) {
   console.warn('[AUTH] Custom OTP delivery requires SUPABASE_SERVICE_ROLE_KEY; using Supabase Auth email delivery instead.');
 }
 
@@ -781,12 +775,9 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     authProvider: 'supabase',
     deployment: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    otpDelivery: supabaseAdmin && resendConfigured
-      ? 'resend-api'
-      : supabaseAdmin && smtpConfigured
-        ? 'smtp'
-        : 'supabase-auth',
-    resendConfigured,
+    otpDelivery: supabaseAdmin && smtpConfigured
+      ? 'smtp'
+      : 'supabase-auth',
     smtpConfigured,
     supabaseAdminConfigured: Boolean(supabaseAdmin),
   });
@@ -880,7 +871,7 @@ app.post('/api/auth/request-otp', async (req: Request, res: Response) => {
   }
 
   let verificationType: 'email' | 'magiclink' = 'email';
-  if ((resendConfigured || smtpConfigured) && supabaseAdmin && smtpFromEmail) {
+  if (smtpConfigured && supabaseAdmin && smtpFromEmail) {
     let linkResult;
     try {
       linkResult = await withTimeout(supabaseAdmin.auth.admin.generateLink({
@@ -930,55 +921,7 @@ app.post('/api/auth/request-otp', async (req: Request, res: Response) => {
       html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px;color:#0f172a"><h2>MyCollege verification</h2><p>Your single-use verification code is:</p><p style="font-size:32px;font-weight:bold;letter-spacing:6px;color:#2563eb">${code}</p><p>This code expires in 5 minutes. If you did not request it, you can ignore this email.</p></div>`,
     };
 
-    if (resendConfigured && resendApiKey) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12_000);
-      try {
-        const response = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${resendApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(message),
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          let providerError: { name?: unknown; message?: unknown } = {};
-          try {
-            const body: unknown = await response.json();
-            if (body && typeof body === 'object') {
-              const details = body as Record<string, unknown>;
-              providerError = {
-                name: details.name,
-                message: details.message,
-              };
-            }
-          } catch {
-            // Some upstream failures return a non-JSON response.
-          }
-          const errorName = typeof providerError.name === 'string' ? providerError.name : 'UNKNOWN';
-          const errorMessage = typeof providerError.message === 'string'
-            ? providerError.message.slice(0, 300)
-            : '';
-          console.warn('[AUTH] Resend OTP delivery failed:', response.status, errorName);
-          const error = errorMessage
-            ? `Resend rejected the verification email: ${errorMessage}`
-            : response.status === 403
-              ? 'The sender is not authorized for this recipient. Verify a sending domain in Resend and use an address from that domain.'
-              : 'We could not deliver the verification email. Please try again later.';
-          return res.status(503).json({ error });
-        }
-      } catch (sendError) {
-        const errorCode = sendError instanceof Error && sendError.name === 'AbortError'
-          ? 'RESEND_REQUEST_TIMEOUT'
-          : 'RESEND_REQUEST_FAILED';
-        console.warn('[AUTH] Resend OTP delivery failed:', errorCode);
-        return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
-      } finally {
-        clearTimeout(timeout);
-      }
-    } else if (smtpTransporter) {
+    if (smtpTransporter) {
       try {
         await smtpTransporter.sendMail(message);
       } catch (sendError) {
