@@ -53,8 +53,13 @@ const supabaseAdmin = createSupabaseAdminClient();
 const smtpHost = process.env.SMTP_HOST?.trim();
 const smtpUser = process.env.SMTP_USER?.trim();
 const smtpPass = process.env.SMTP_PASS?.trim();
-const smtpFromEmail = process.env.SMTP_FROM_EMAIL?.trim() ||
+const smtpFromEmail = process.env.RESEND_FROM_EMAIL?.trim() ||
+  process.env.SMTP_FROM_EMAIL?.trim() ||
   (smtpUser?.includes('@') ? smtpUser : null);
+const resendApiKey = process.env.RESEND_API_KEY?.trim() ||
+  (smtpHost?.toLowerCase() === 'smtp.resend.com' || smtpUser?.toLowerCase() === 'resend' || smtpPass?.startsWith('re_')
+    ? smtpPass
+    : undefined);
 const smtpPort = Number(process.env.SMTP_PORT) || 587;
 const smtpTransporter = smtpHost && smtpUser && smtpPass
   ? nodemailer.createTransport({
@@ -62,10 +67,29 @@ const smtpTransporter = smtpHost && smtpUser && smtpPass
       port: smtpPort,
       secure: smtpPort === 465,
       auth: { user: smtpUser, pass: smtpPass },
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     })
   : null;
-if (smtpTransporter && !supabaseAdmin) {
-  console.warn('[AUTH] SMTP OTP delivery requires SUPABASE_SERVICE_ROLE_KEY; using Supabase Auth email delivery instead.');
+const resendConfigured = Boolean(resendApiKey && smtpFromEmail);
+const smtpConfigured = Boolean(smtpTransporter && smtpFromEmail);
+if ((resendConfigured || smtpConfigured) && !supabaseAdmin) {
+  console.warn('[AUTH] Custom OTP delivery requires SUPABASE_SERVICE_ROLE_KEY; using Supabase Auth email delivery instead.');
+}
+
+async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('OPERATION_TIMEOUT')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -757,8 +781,13 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     authProvider: 'supabase',
     deployment: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    otpDelivery: smtpTransporter && smtpFromEmail && supabaseAdmin ? 'smtp' : 'supabase-auth',
-    smtpConfigured: Boolean(smtpTransporter && smtpFromEmail),
+    otpDelivery: supabaseAdmin && resendConfigured
+      ? 'resend-api'
+      : supabaseAdmin && smtpConfigured
+        ? 'smtp'
+        : 'supabase-auth',
+    resendConfigured,
+    smtpConfigured,
     supabaseAdminConfigured: Boolean(supabaseAdmin),
   });
 });
@@ -851,22 +880,39 @@ app.post('/api/auth/request-otp', async (req: Request, res: Response) => {
   }
 
   let verificationType: 'email' | 'magiclink' = 'email';
-  if (smtpTransporter && smtpFromEmail && supabaseAdmin) {
-    let linkResult = await supabaseAdmin.auth.admin.generateLink({
-      type: 'signup',
-      email: norm,
-      password: crypto.randomBytes(32).toString('hex'),
-    });
+  if ((resendConfigured || smtpConfigured) && supabaseAdmin && smtpFromEmail) {
+    let linkResult;
+    try {
+      linkResult = await withTimeout(supabaseAdmin.auth.admin.generateLink({
+        type: 'signup',
+        email: norm,
+        password: crypto.randomBytes(32).toString('hex'),
+      }), 12_000);
+    } catch (error) {
+      const errorCode = error instanceof Error && error.message === 'OPERATION_TIMEOUT'
+        ? 'SUPABASE_AUTH_TIMEOUT'
+        : 'SUPABASE_AUTH_REQUEST_FAILED';
+      console.warn('[AUTH] Supabase OTP generation failed:', errorCode);
+      return res.status(503).json({ error: 'We could not prepare the verification email in time. Please try again later.' });
+    }
 
     const alreadyRegistered = linkResult.error && (
       ['user_already_exists', 'email_exists'].includes(linkResult.error.code || '') ||
       linkResult.error.message.toLowerCase().includes('already registered')
     );
     if (alreadyRegistered) {
-      linkResult = await supabaseAdmin.auth.admin.generateLink({
-        type: 'magiclink',
-        email: norm,
-      });
+      try {
+        linkResult = await withTimeout(supabaseAdmin.auth.admin.generateLink({
+          type: 'magiclink',
+          email: norm,
+        }), 12_000);
+      } catch (error) {
+        const errorCode = error instanceof Error && error.message === 'OPERATION_TIMEOUT'
+          ? 'SUPABASE_AUTH_TIMEOUT'
+          : 'SUPABASE_AUTH_REQUEST_FAILED';
+        console.warn('[AUTH] Supabase OTP generation failed:', errorCode);
+        return res.status(503).json({ error: 'We could not prepare the verification email in time. Please try again later.' });
+      }
       verificationType = 'magiclink';
     }
 
@@ -876,20 +922,53 @@ app.post('/api/auth/request-otp', async (req: Request, res: Response) => {
     }
 
     const code = linkResult.data.properties.email_otp;
-    try {
-      await smtpTransporter.sendMail({
-        from: `"MyCollege Security" <${smtpFromEmail}>`,
-        to: norm,
-        subject: 'Your MyCollege verification code',
-        text: `Your MyCollege verification code is ${code}. It expires in 5 minutes. Do not share this code with anyone.`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px;color:#0f172a"><h2>MyCollege verification</h2><p>Your single-use verification code is:</p><p style="font-size:32px;font-weight:bold;letter-spacing:6px;color:#2563eb">${code}</p><p>This code expires in 5 minutes. If you did not request it, you can ignore this email.</p></div>`,
-      });
-    } catch (sendError) {
-      const errorCode = sendError instanceof Error && 'code' in sendError && typeof sendError.code === 'string'
-        ? sendError.code
-        : 'SMTP_DELIVERY_FAILED';
-      console.warn('[AUTH] SMTP OTP delivery failed:', errorCode);
-      return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
+    const message = {
+      from: `"MyCollege Security" <${smtpFromEmail}>`,
+      to: norm,
+      subject: 'Your MyCollege verification code',
+      text: `Your MyCollege verification code is ${code}. It expires in 5 minutes. Do not share this code with anyone.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:24px;color:#0f172a"><h2>MyCollege verification</h2><p>Your single-use verification code is:</p><p style="font-size:32px;font-weight:bold;letter-spacing:6px;color:#2563eb">${code}</p><p>This code expires in 5 minutes. If you did not request it, you can ignore this email.</p></div>`,
+    };
+
+    if (resendConfigured && resendApiKey) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12_000);
+      try {
+        const response = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${resendApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(message),
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          console.warn('[AUTH] Resend OTP delivery failed:', response.status);
+          const error = response.status === 403
+            ? 'The email sender is not authorized for this recipient. Verify a sending domain in Resend and use an address from that domain.'
+            : 'We could not deliver the verification email. Please try again later.';
+          return res.status(503).json({ error });
+        }
+      } catch (sendError) {
+        const errorCode = sendError instanceof Error && sendError.name === 'AbortError'
+          ? 'RESEND_REQUEST_TIMEOUT'
+          : 'RESEND_REQUEST_FAILED';
+        console.warn('[AUTH] Resend OTP delivery failed:', errorCode);
+        return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
+      } finally {
+        clearTimeout(timeout);
+      }
+    } else if (smtpTransporter) {
+      try {
+        await smtpTransporter.sendMail(message);
+      } catch (sendError) {
+        const errorCode = sendError instanceof Error && 'code' in sendError && typeof sendError.code === 'string'
+          ? sendError.code
+          : 'SMTP_DELIVERY_FAILED';
+        console.warn('[AUTH] SMTP OTP delivery failed:', errorCode);
+        return res.status(503).json({ error: 'We could not deliver the verification email. Please try again later.' });
+      }
     }
   } else {
     const { error } = await supabaseAuth.auth.signInWithOtp({

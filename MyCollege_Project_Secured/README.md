@@ -12,14 +12,15 @@ Prerequisite: Node.js.
    server loads `.env`; putting server secrets only in `.env.local` will not
    configure the server. Keep `.env` private and never commit it.
    - Configure `GEMINI_API_KEY` to enable AI summarization.
-   - Email OTPs are generated and verified by Supabase Auth, then delivered by
-     the server's SMTP transport. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
-     `SMTP_PASS`, and a provider-authorized `SMTP_FROM_EMAIL` in `.env`; keep
-     credentials server-side. For Resend, use `smtp.resend.com`, port `587`,
-     username `resend`, and a Resend API key as `SMTP_PASS`. The sender address
-     must belong to a domain verified with Resend. This delivery path also
-     requires `SUPABASE_SERVICE_ROLE_KEY`. If SMTP is not fully configured,
-     the server falls back to Supabase Auth's configured email provider.
+   - Email OTPs are generated and verified by Supabase Auth, then delivered
+     through Resend's HTTPS API. Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL`;
+     the sender must belong to a domain verified with Resend for delivery to
+     general recipients. This path also requires `SUPABASE_SERVICE_ROLE_KEY`.
+     For compatibility, the server can use an existing Resend API key in
+     `SMTP_PASS` and sender in `SMTP_FROM_EMAIL`. SMTP remains available as a
+     local fallback, but Render deployments should use the HTTPS API rather
+     than SMTP. If custom delivery is not fully configured, the server falls
+     back to Supabase Auth's configured email provider.
    - Configure `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` for the server's
      Supabase health check. These values do not connect the app's in-memory
      application data to the database.

@@ -450,10 +450,22 @@ export const api = {
     expiresInSeconds: number;
     deliveryNote: string;
   }> {
-    return request('/api/auth/request-otp', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      return await request('/api/auth/request-otp', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error('Verification email request timed out. Please try again later.');
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   async verifyOtp(
