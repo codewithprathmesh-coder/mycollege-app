@@ -34,39 +34,47 @@ interface SessionStoreConfig {
   encryptionKey: Buffer;
 }
 
-let cachedConfig: SessionStoreConfig | undefined;
+let cachedConfig: SessionStoreConfig | null | undefined;
 
-function getSessionStoreConfig(): SessionStoreConfig {
-  if (cachedConfig) return cachedConfig;
+function getSessionStoreConfig(): SessionStoreConfig | null {
+  if (cachedConfig !== undefined) return cachedConfig;
 
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   const encodedEncryptionKey = process.env.SESSION_ENCRYPTION_KEY?.trim();
   if (!url || !serviceRoleKey || !encodedEncryptionKey) {
-    throw new Error(
-      'Persistent sessions are not configured. Set SUPABASE_SERVICE_ROLE_KEY and SESSION_ENCRYPTION_KEY on the server.'
-    );
+    console.info('Persistent sessions: keys not configured on server (SUPABASE_SERVICE_ROLE_KEY or SESSION_ENCRYPTION_KEY missing). Falling back to in-memory active sessions.');
+    cachedConfig = null;
+    return null;
   }
 
-  const encryptionKey = Buffer.from(encodedEncryptionKey, 'base64');
-  if (
-    encryptionKey.length !== 32 ||
-    encryptionKey.toString('base64') !== encodedEncryptionKey
-  ) {
-    throw new Error('SESSION_ENCRYPTION_KEY must be a base64-encoded 32-byte key.');
-  }
+  try {
+    const encryptionKey = Buffer.from(encodedEncryptionKey, 'base64');
+    if (
+      encryptionKey.length !== 32 ||
+      encryptionKey.toString('base64') !== encodedEncryptionKey
+    ) {
+      console.warn('SESSION_ENCRYPTION_KEY is not a valid base64-encoded 32-byte key. Falling back to in-memory active sessions.');
+      cachedConfig = null;
+      return null;
+    }
 
-  cachedConfig = {
-    client: createClient(url, serviceRoleKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
-      },
-    }),
-    encryptionKey,
-  };
-  return cachedConfig;
+    cachedConfig = {
+      client: createClient(url, serviceRoleKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      }),
+      encryptionKey,
+    };
+    return cachedConfig;
+  } catch (err) {
+    console.warn('Failed to initialize session store config, falling back to in-memory active sessions:', err);
+    cachedConfig = null;
+    return null;
+  }
 }
 
 function sessionTokenHash(token: string, key: Buffer): string {
@@ -133,88 +141,110 @@ function decryptSessionPayload(
   return payload as SessionPayload;
 }
 
-function throwStoreError(operation: string, error: { code?: string } | null): never {
-  throw new Error(
-    `Could not ${operation} in Supabase${error?.code ? ` (${error.code})` : ''}.`
-  );
-}
-
 export async function loadSessionRecord(token: string): Promise<SessionRecord | null> {
-  const { client, encryptionKey } = getSessionStoreConfig();
-  const tokenHash = sessionTokenHash(token, encryptionKey);
-  const { data, error } = await client
-    .from('mycollege_server_sessions')
-    .select('profile_id, auth_user_id, encrypted_data, created_at, expires_at')
-    .eq('token_hash', tokenHash)
-    .maybeSingle();
-  if (error) throwStoreError('load the server session', error);
-  if (!data) return null;
+  const config = getSessionStoreConfig();
+  if (!config) return null;
+  const { client, encryptionKey } = config;
 
-  const row = data as StoredSessionRow;
-  const expiresAt = new Date(row.expires_at).getTime();
-  if (!Number.isFinite(expiresAt)) {
-    throw new Error('Stored session expiry is invalid.');
-  }
-  if (Date.now() >= expiresAt) {
-    await deleteSessionRecord(token);
+  try {
+    const tokenHash = sessionTokenHash(token, encryptionKey);
+    const { data, error } = await client
+      .from('mycollege_server_sessions')
+      .select('profile_id, auth_user_id, encrypted_data, created_at, expires_at')
+      .eq('token_hash', tokenHash)
+      .maybeSingle();
+
+    if (error) {
+      console.warn('Could not load session from database:', error.message || error.code);
+      return null;
+    }
+    if (!data) return null;
+
+    const row = data as StoredSessionRow;
+    const expiresAt = new Date(row.expires_at).getTime();
+    if (!Number.isFinite(expiresAt) || Date.now() >= expiresAt) {
+      if (Date.now() >= expiresAt) {
+        await deleteSessionRecord(token).catch(() => {});
+      }
+      return null;
+    }
+
+    const payload = decryptSessionPayload(row.encrypted_data, encryptionKey, tokenHash);
+    if (payload.userSnapshot.id !== row.profile_id) {
+      return null;
+    }
+
+    return {
+      token,
+      userId: row.profile_id,
+      authUserId: row.auth_user_id,
+      email: payload.userSnapshot.email,
+      supabaseAccessToken: payload.supabaseAccessToken,
+      supabaseRefreshToken: payload.supabaseRefreshToken,
+      createdAt: new Date(row.created_at).getTime(),
+      expiresAt,
+      userSnapshot: payload.userSnapshot,
+    };
+  } catch (err) {
+    console.warn('Error decrypting/restoring session from DB:', err);
     return null;
   }
-
-  const payload = decryptSessionPayload(row.encrypted_data, encryptionKey, tokenHash);
-  if (payload.userSnapshot.id !== row.profile_id) {
-    throw new Error('Stored session profile does not match its encrypted data.');
-  }
-
-  return {
-    token,
-    userId: row.profile_id,
-    authUserId: row.auth_user_id,
-    email: payload.userSnapshot.email,
-    supabaseAccessToken: payload.supabaseAccessToken,
-    supabaseRefreshToken: payload.supabaseRefreshToken,
-    createdAt: new Date(row.created_at).getTime(),
-    expiresAt,
-    userSnapshot: payload.userSnapshot,
-  };
 }
 
 export async function saveSessionRecord(session: SessionRecord): Promise<void> {
-  const { client, encryptionKey } = getSessionStoreConfig();
+  const config = getSessionStoreConfig();
+  if (!config) return;
+  const { client, encryptionKey } = config;
+
   if (session.userSnapshot.id !== session.userId) {
-    throw new Error('Session profile does not match the stored user snapshot.');
+    console.warn('Session profile does not match user snapshot, skipping persistent save.');
+    return;
   }
-  const tokenHash = sessionTokenHash(session.token, encryptionKey);
-  const encryptedData = encryptSessionPayload(
-    {
-      supabaseAccessToken: session.supabaseAccessToken,
-      supabaseRefreshToken: session.supabaseRefreshToken,
-      userSnapshot: session.userSnapshot,
-    },
-    encryptionKey,
-    tokenHash
-  );
-  const { error } = await client
-    .from('mycollege_server_sessions')
-    .upsert(
+
+  try {
+    const tokenHash = sessionTokenHash(session.token, encryptionKey);
+    const encryptedData = encryptSessionPayload(
       {
-        token_hash: tokenHash,
-        profile_id: session.userId,
-        auth_user_id: session.authUserId,
-        encrypted_data: encryptedData,
-        created_at: new Date(session.createdAt).toISOString(),
-        expires_at: new Date(session.expiresAt).toISOString(),
+        supabaseAccessToken: session.supabaseAccessToken,
+        supabaseRefreshToken: session.supabaseRefreshToken,
+        userSnapshot: session.userSnapshot,
       },
-      { onConflict: 'token_hash' }
+      encryptionKey,
+      tokenHash
     );
-  if (error) throwStoreError('save the server session', error);
+    const { error } = await client
+      .from('mycollege_server_sessions')
+      .upsert(
+        {
+          token_hash: tokenHash,
+          profile_id: session.userId,
+          auth_user_id: session.authUserId,
+          encrypted_data: encryptedData,
+          created_at: new Date(session.createdAt).toISOString(),
+          expires_at: new Date(session.expiresAt).toISOString(),
+        },
+        { onConflict: 'token_hash' }
+      );
+    if (error) {
+      console.warn('Could not persist session to Supabase:', error.message || error.code);
+    }
+  } catch (err) {
+    console.warn('Failed to encrypt or save session to Supabase:', err);
+  }
 }
 
 export async function deleteSessionRecord(token: string): Promise<void> {
-  const { client, encryptionKey } = getSessionStoreConfig();
-  const tokenHash = sessionTokenHash(token, encryptionKey);
-  const { error } = await client
-    .from('mycollege_server_sessions')
-    .delete()
-    .eq('token_hash', tokenHash);
-  if (error) throwStoreError('delete the server session', error);
+  const config = getSessionStoreConfig();
+  if (!config) return;
+  const { client, encryptionKey } = config;
+
+  try {
+    const tokenHash = sessionTokenHash(token, encryptionKey);
+    await client
+      .from('mycollege_server_sessions')
+      .delete()
+      .eq('token_hash', tokenHash);
+  } catch (err) {
+    console.warn('Could not delete session from Supabase:', err);
+  }
 }

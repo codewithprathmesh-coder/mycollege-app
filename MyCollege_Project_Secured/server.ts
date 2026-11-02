@@ -436,8 +436,7 @@ async function getSupabaseClientForRequest(req: Request) {
   try {
     await saveSessionRecord(session);
   } catch (saveError) {
-    console.error('Could not persist the refreshed session:', saveError);
-    return null;
+    console.warn('Could not persist the refreshed session:', saveError);
   }
   return createAuthenticatedSupabaseClient(data.session.access_token);
 }
@@ -677,26 +676,22 @@ app.use('/api', async (req: Request, res: Response, next) => {
   ]);
   const token = getSessionTokenFromRequest(req);
   if (token && !pathsWithoutSessionRestore.has(req.path)) {
-    let session: SessionRecord | undefined;
+    let session = activeSessions.get(token);
     try {
-      const storedSession = await loadSessionRecord(token);
-      if (storedSession) {
-        const cachedSession = activeSessions.get(token);
-        session = cachedSession?.userId === storedSession.userId
-          ? {
-              ...storedSession,
-              userSnapshot: cachedSession.userSnapshot,
-            }
-          : storedSession;
-        activeSessions.set(token, session);
-      } else {
-        activeSessions.delete(token);
+      if (!session) {
+        const storedSession = await loadSessionRecord(token);
+        if (storedSession) {
+          session = storedSession;
+          activeSessions.set(token, session);
+        }
       }
     } catch (restoreError) {
-      console.error('Could not restore the persistent session:', restoreError);
-      return res.status(503).json({
-        error: 'Could not restore your sign-in session. Please try again later.',
-      });
+      console.warn('Could not restore persistent session from DB:', restoreError);
+    }
+
+    if (session && Date.now() >= session.expiresAt) {
+      activeSessions.delete(token);
+      session = undefined;
     }
 
     if (session) {
@@ -1082,10 +1077,7 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
   try {
     await saveSessionRecord(session);
   } catch (saveError) {
-    console.error('Could not create a persistent sign-in session:', saveError);
-    return res.status(503).json({
-      error: 'Could not create a durable sign-in session. Please try again later.',
-    });
+    console.warn('Could not create a persistent database sign-in session, continuing with in-memory session:', saveError);
   }
   activeSessions.set(token, session);
   setSessionCookie(res, token, sessionMaxAgeSeconds);
