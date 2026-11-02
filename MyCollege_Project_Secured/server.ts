@@ -2690,6 +2690,10 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
+  const token = getSessionTokenFromRequest(req);
+  const session = token ? activeSessions.get(token) : undefined;
+  const authorId = session?.authUserId || currentUser.id;
+
   const { data: institution, error: institutionError } = await supabase
     .from('institutions')
     .select('require_approval')
@@ -2699,12 +2703,13 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
     console.error('Could not load announcement approval settings:', institutionError?.code);
     return res.status(503).json({ error: 'Could not verify announcement approval settings.' });
   }
-  const requiresApproval = institution.require_approval && currentUser.role !== 'admin';
+  const isStaff = ['admin', 'faculty', 'teacher'].includes(currentUser.role);
+  const requiresApproval = Boolean(institution.require_approval && !isStaff);
   const { data: inserted, error: insertError } = await supabase
     .from('announcements')
     .insert({
       institution_id: currentUser.institutionId,
-      author_id: currentUser.id,
+      author_id: authorId,
       title: title.trim(),
       description: description.trim(),
       category,
@@ -2722,13 +2727,13 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
       registration_link: registrationLink || null,
       image_banner: imageBanner || null,
       ai_summary: aiSummary || null,
-      is_official: currentUser.role === 'faculty' || currentUser.role === 'admin',
+      is_official: isStaff,
     })
     .select('*')
     .single();
   if (insertError) {
-    console.error('Could not create announcement in Supabase:', insertError.code);
-    return res.status(500).json({ error: 'Could not create the announcement. Please try again.' });
+    console.error('Could not create announcement in Supabase:', insertError.code, insertError.message, insertError.details);
+    return res.status(500).json({ error: insertError.message || 'Could not create the announcement. Please try again.' });
   }
   const childError = await persistAnnouncementChildren(
     supabase,
@@ -5098,13 +5103,17 @@ app.post('/api/channels/:id/announcements', async (req: Request, res: Response) 
   const announcementId = crypto.randomUUID();
   const circleAnnouncementId = crypto.randomUUID();
   const institution = institutions.find((item) => item.id === currentUser.institutionId);
-  const requiresApproval = Boolean(institution?.requireApproval && currentUser.role !== 'admin');
+  const isStaff = ['admin', 'faculty', 'teacher'].includes(currentUser.role);
+  const requiresApproval = Boolean(institution?.requireApproval && !isStaff);
+  const token = getSessionTokenFromRequest(req);
+  const session = token ? activeSessions.get(token) : undefined;
+  const authorId = session?.authUserId || currentUser.id;
   const cleanTitle = title.trim();
   const cleanContent = content.trim();
   const announcementRow = {
     id: announcementId,
     institution_id: currentUser.institutionId,
-    author_id: currentUser.id,
+    author_id: authorId,
     title: `[${channel.title}] ${cleanTitle}`,
     description: cleanContent,
     category: channel.type === 'class' ? 'academics' : channel.type === 'club' ? 'clubs' : 'general',

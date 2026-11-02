@@ -82,7 +82,7 @@ export const CreateAnnouncementModal: React.FC<CreateAnnouncementModalProps> = (
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const willRequireApproval = currentInstitution.requireApproval && currentUser.role !== 'admin';
+  const willRequireApproval = currentInstitution.requireApproval && !['admin', 'faculty', 'teacher'].includes(currentUser.role);
 
   const handleGenerateSummary = async () => {
     if (!title.trim() || !description.trim()) {
