@@ -53,6 +53,8 @@ const supabaseAdmin = createSupabaseAdminClient();
 const smtpHost = process.env.SMTP_HOST?.trim();
 const smtpUser = process.env.SMTP_USER?.trim();
 const smtpPass = process.env.SMTP_PASS?.trim();
+const smtpFromEmail = process.env.SMTP_FROM_EMAIL?.trim() ||
+  (smtpUser?.includes('@') ? smtpUser : null);
 const smtpPort = Number(process.env.SMTP_PORT) || 587;
 const smtpTransporter = smtpHost && smtpUser && smtpPass
   ? nodemailer.createTransport({
@@ -755,8 +757,8 @@ app.get('/api/health', (_req, res) => {
     status: 'ok',
     authProvider: 'supabase',
     deployment: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
-    otpDelivery: smtpTransporter && supabaseAdmin ? 'smtp' : 'supabase-auth',
-    smtpConfigured: Boolean(smtpTransporter),
+    otpDelivery: smtpTransporter && smtpFromEmail && supabaseAdmin ? 'smtp' : 'supabase-auth',
+    smtpConfigured: Boolean(smtpTransporter && smtpFromEmail),
     supabaseAdminConfigured: Boolean(supabaseAdmin),
   });
 });
@@ -849,7 +851,7 @@ app.post('/api/auth/request-otp', async (req: Request, res: Response) => {
   }
 
   let verificationType: 'email' | 'magiclink' = 'email';
-  if (smtpTransporter && supabaseAdmin) {
+  if (smtpTransporter && smtpFromEmail && supabaseAdmin) {
     let linkResult = await supabaseAdmin.auth.admin.generateLink({
       type: 'signup',
       email: norm,
@@ -876,7 +878,7 @@ app.post('/api/auth/request-otp', async (req: Request, res: Response) => {
     const code = linkResult.data.properties.email_otp;
     try {
       await smtpTransporter.sendMail({
-        from: `"MyCollege Security" <${smtpUser}>`,
+        from: `"MyCollege Security" <${smtpFromEmail}>`,
         to: norm,
         subject: 'Your MyCollege verification code',
         text: `Your MyCollege verification code is ${code}. It expires in 5 minutes. Do not share this code with anyone.`,

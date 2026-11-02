@@ -13,9 +13,12 @@ Prerequisite: Node.js.
    configure the server. Keep `.env` private and never commit it.
    - Configure `GEMINI_API_KEY` to enable AI summarization.
    - Email OTPs are generated and verified by Supabase Auth, then delivered by
-     the server's SMTP transport. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, and
-     `SMTP_PASS` in `.env`; keep these credentials server-side. This delivery
-     path also requires `SUPABASE_SERVICE_ROLE_KEY`. If SMTP is not configured,
+     the server's SMTP transport. Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`,
+     `SMTP_PASS`, and a provider-authorized `SMTP_FROM_EMAIL` in `.env`; keep
+     credentials server-side. For Resend, use `smtp.resend.com`, port `587`,
+     username `resend`, and a Resend API key as `SMTP_PASS`. The sender address
+     must belong to a domain verified with Resend. This delivery path also
+     requires `SUPABASE_SERVICE_ROLE_KEY`. If SMTP is not fully configured,
      the server falls back to Supabase Auth's configured email provider.
    - Configure `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` for the server's
      Supabase health check. These values do not connect the app's in-memory
