@@ -754,6 +754,10 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     authProvider: 'supabase',
+    deployment: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
+    otpDelivery: smtpTransporter && supabaseAdmin ? 'smtp' : 'supabase-auth',
+    smtpConfigured: Boolean(smtpTransporter),
+    supabaseAdminConfigured: Boolean(supabaseAdmin),
   });
 });
 
