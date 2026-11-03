@@ -3705,6 +3705,14 @@ app.post('/api/channels', async (req: Request, res: Response) => {
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
+  const token = getSessionTokenFromRequest(req);
+  const session = token ? activeSessions.get(token) : undefined;
+  let creatorId = session?.authUserId;
+  if (!creatorId) {
+    const { data: authUserData } = await supabase.auth.getUser();
+    creatorId = authUserData?.user?.id || currentUser.id;
+  }
+
   const { data, error } = await supabase
     .from('channels')
     .insert({
@@ -3712,7 +3720,7 @@ app.post('/api/channels', async (req: Request, res: Response) => {
       institution_id: newChannel.institutionId,
       department_id: typeof departmentId === 'string' ? departmentId : null,
       division_id: typeof divisionId === 'string' ? divisionId : null,
-      creator_id: currentUser.id,
+      creator_id: creatorId,
       name: newChannel.name,
       title: newChannel.title,
       description: newChannel.description,
@@ -3724,12 +3732,26 @@ app.post('/api/channels', async (req: Request, res: Response) => {
     .select('*')
     .single();
   if (error || !data) {
-    console.error('Could not create channel in Supabase:', error?.code);
-    return res.status(503).json({ error: 'Could not create the group. Please try again later.' });
+    console.error('Could not create channel in Supabase:', error?.code, error?.message, error?.details);
+    return res.status(503).json({ error: error?.message || 'Could not create the group. Please try again later.' });
   }
+
+  try {
+    await supabase
+      .from('channel_members')
+      .insert({
+        channel_id: data.id,
+        profile_id: creatorId,
+        role: 'owner',
+        status: 'active',
+      });
+  } catch (memberErr) {
+    console.warn('Could not ensure owner in channel_members:', memberErr);
+  }
+
   const persistedChannel = mapChannelRow(data as ChannelDbRow, [{
     channel_id: data.id,
-    profile_id: currentUser.id,
+    profile_id: creatorId,
     role: 'owner',
     status: 'active',
   }]);
@@ -3919,12 +3941,19 @@ app.post('/api/channels/:id/messages', async (req: Request, res: Response) => {
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
+  const token = getSessionTokenFromRequest(req);
+  const session = token ? activeSessions.get(token) : undefined;
+  let senderId = session?.authUserId;
+  if (!senderId) {
+    const { data: authUserData } = await supabase.auth.getUser();
+    senderId = authUserData?.user?.id || currentUser.id;
+  }
   const { data: inserted, error } = await supabase
     .from('channel_messages')
     .insert({
       id: newMsg.id,
       channel_id: channel.id,
-      sender_id: currentUser.id,
+      sender_id: senderId,
       content: newMsg.content,
       attachment: newMsg.attachment || null,
       reply_to_id: newMsg.replyTo?.id || null,
