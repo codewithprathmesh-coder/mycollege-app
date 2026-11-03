@@ -3713,24 +3713,39 @@ app.post('/api/channels', async (req: Request, res: Response) => {
     creatorId = authUserData?.user?.id || currentUser.id;
   }
 
-  const { data, error } = await supabase
+  let insertPayload: any = {
+    id: newChannel.id,
+    institution_id: newChannel.institutionId,
+    department_id: typeof departmentId === 'string' ? departmentId : null,
+    division_id: typeof divisionId === 'string' ? divisionId : null,
+    creator_id: creatorId,
+    name: newChannel.name,
+    title: newChannel.title,
+    description: newChannel.description,
+    type: newChannel.type,
+    is_official: newChannel.isOfficial,
+    pinned_announcement_id: pinnedAnnouncementId || null,
+    invite_code: `JOIN-${crypto.randomBytes(6).toString('hex').toUpperCase()}`,
+  };
+
+  let { data, error } = await supabase
     .from('channels')
-    .insert({
-      id: newChannel.id,
-      institution_id: newChannel.institutionId,
-      department_id: typeof departmentId === 'string' ? departmentId : null,
-      division_id: typeof divisionId === 'string' ? divisionId : null,
-      creator_id: creatorId,
-      name: newChannel.name,
-      title: newChannel.title,
-      description: newChannel.description,
-      type: newChannel.type,
-      is_official: newChannel.isOfficial,
-      pinned_announcement_id: pinnedAnnouncementId || null,
-      invite_code: `JOIN-${crypto.randomBytes(6).toString('hex').toUpperCase()}`,
-    })
+    .insert(insertPayload)
     .select('*')
     .single();
+
+  if (error && (error.code === 'PGRST204' || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+    console.warn('[CHANNELS] Retrying channel insert without optional columns:', error.message);
+    delete insertPayload.pinned_announcement_id;
+    delete insertPayload.invite_code;
+    const retry = await supabase
+      .from('channels')
+      .insert(insertPayload)
+      .select('*')
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
   if (error || !data) {
     console.error('Could not create channel in Supabase:', error?.code, error?.message, error?.details);
     return res.status(503).json({ error: error?.message || 'Could not create the group. Please try again later.' });
@@ -3948,24 +3963,41 @@ app.post('/api/channels/:id/messages', async (req: Request, res: Response) => {
     const { data: authUserData } = await supabase.auth.getUser();
     senderId = authUserData?.user?.id || currentUser.id;
   }
-  const { data: inserted, error } = await supabase
+  let msgInsertPayload: any = {
+    id: newMsg.id,
+    channel_id: channel.id,
+    sender_id: senderId,
+    content: newMsg.content,
+    attachment: newMsg.attachment || null,
+    reply_to_id: newMsg.replyTo?.id || null,
+    reply_metadata: newMsg.replyTo || null,
+    poll_data: newMsg.poll || null,
+    sender_name: currentUser.name,
+    sender_role: currentUser.role,
+    sender_department: currentUser.departmentName || null,
+    status: newMsg.status,
+  };
+  let { data: inserted, error } = await supabase
     .from('channel_messages')
-    .insert({
-      id: newMsg.id,
-      channel_id: channel.id,
-      sender_id: senderId,
-      content: newMsg.content,
-      attachment: newMsg.attachment || null,
-      reply_to_id: newMsg.replyTo?.id || null,
-      reply_metadata: newMsg.replyTo || null,
-      poll_data: newMsg.poll || null,
-      sender_name: currentUser.name,
-      sender_role: currentUser.role,
-      sender_department: currentUser.departmentName || null,
-      status: newMsg.status,
-    })
+    .insert(msgInsertPayload)
     .select('*')
     .single();
+
+  if (error && (error.code === 'PGRST204' || error.message?.includes('column') || error.message?.includes('schema cache'))) {
+    console.warn('[MESSAGES] Retrying message insert without optional metadata columns:', error.message);
+    delete msgInsertPayload.reply_metadata;
+    delete msgInsertPayload.poll_data;
+    delete msgInsertPayload.sender_name;
+    delete msgInsertPayload.sender_role;
+    delete msgInsertPayload.sender_department;
+    const retry = await supabase
+      .from('channel_messages')
+      .insert(msgInsertPayload)
+      .select('*')
+      .single();
+    inserted = retry.data;
+    error = retry.error;
+  }
   if (error || !inserted) {
     console.error('Could not save channel message in Supabase:', error?.code);
     return res.status(503).json({ error: 'Could not send this message. Please try again later.' });
