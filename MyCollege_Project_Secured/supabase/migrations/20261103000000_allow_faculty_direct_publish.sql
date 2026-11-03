@@ -14,7 +14,7 @@ create table if not exists public.faculty_directory (
   id uuid primary key default gen_random_uuid(),
   institution_id uuid not null references public.institutions(id) on delete cascade,
   department_id uuid not null references public.departments(id) on delete cascade,
-  email text not null unique,
+  email text not null,
   full_name text not null,
   designation text not null,
   is_active boolean not null default true,
@@ -24,7 +24,11 @@ create table if not exists public.faculty_directory (
 
 alter table public.faculty_directory enable row level security;
 
--- Seed / update all faculty members
+-- Create unique index if not exists
+create unique index if not exists faculty_directory_email_idx
+  on public.faculty_directory (lower(email));
+
+-- Seed new faculty members using WHERE NOT EXISTS (safe across all PostgreSQL schema states)
 insert into public.faculty_directory (
   institution_id,
   department_id,
@@ -33,33 +37,72 @@ insert into public.faculty_directory (
   designation,
   is_active
 )
-values
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'mnemade@somaiya.edu', 'Dr. Milind U. Nemade', 'HOD & Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'vwadhe@somaiya.edu', 'Dr. Vaishali R. Wadhwe', 'I/C HOD & Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'gwadmare@somaiya.edu', 'Mr. Ganesh B. Wadmare', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'devanandkb@somaiya.edu', 'Mr. Devanand K. Bathe', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'sheetaljagtap@somaiya.edu', 'Dr. Sheetal G. Jagtap', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'pankaj@somaiya.edu', 'Mr. Pankaj V. Deshmukh', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'medha@somaiya.edu', 'Ms. Medha S. Asurlekar', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'sshah@somaiya.edu', 'Ms. Sejal B. Shah', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'vsagvekar@somaiya.edu', 'Dr. Vidya R. Sagvekar', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'sarika@somaiya.edu', 'Dr. Sarika Y. Mane', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'deepali.c@somaiya.edu', 'Ms. Deepali Chavan', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'pravin.patil@somaiya.edu', 'Mr. Pravin Patil', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'pradnya28@somaiya.edu', 'Ms. Pradnya Jadhav', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'prashant.sb@somaiya.edu', 'Mr. Prashant Bhandare', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'bhagyashree.i@somaiya.edu', 'Ms. Bhagyashree Ingale', 'Asst.Professor', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'skasar@somaiya.edu', 'Mr. Sudhir Kasar', 'Skilled Asst.', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'kpashte@somaiya.edu', 'Ms. Kavita Pashte', 'Tech.Asst.', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'sdhale@somaiya.edu', 'Mr. Sachin Dhale', 'Lab.Asst.', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'bharati@somaiya.edu', 'Ms. Bharati Sansare', 'Lab.Asst.', true),
-  ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000015', 'lokmat874@gmail.com', 'lokmat', 'trial', true)
-on conflict (email) do update
-set full_name = excluded.full_name,
-    designation = excluded.designation,
-    institution_id = excluded.institution_id,
-    department_id = excluded.department_id,
-    is_active = true;
+select
+  '00000000-0000-4000-8000-000000000001'::uuid,
+  '00000000-0000-4000-8000-000000000015'::uuid,
+  v.email,
+  v.full_name,
+  v.designation,
+  true
+from (
+  values
+    ('mnemade@somaiya.edu', 'Dr. Milind U. Nemade', 'HOD & Professor'),
+    ('vwadhe@somaiya.edu', 'Dr. Vaishali R. Wadhwe', 'I/C HOD & Professor'),
+    ('gwadmare@somaiya.edu', 'Mr. Ganesh B. Wadmare', 'Asst.Professor'),
+    ('devanandkb@somaiya.edu', 'Mr. Devanand K. Bathe', 'Asst.Professor'),
+    ('sheetaljagtap@somaiya.edu', 'Dr. Sheetal G. Jagtap', 'Asst.Professor'),
+    ('pankaj@somaiya.edu', 'Mr. Pankaj V. Deshmukh', 'Asst.Professor'),
+    ('medha@somaiya.edu', 'Ms. Medha S. Asurlekar', 'Asst.Professor'),
+    ('sshah@somaiya.edu', 'Ms. Sejal B. Shah', 'Asst.Professor'),
+    ('vsagvekar@somaiya.edu', 'Dr. Vidya R. Sagvekar', 'Asst.Professor'),
+    ('sarika@somaiya.edu', 'Dr. Sarika Y. Mane', 'Asst.Professor'),
+    ('deepali.c@somaiya.edu', 'Ms. Deepali Chavan', 'Asst.Professor'),
+    ('pravin.patil@somaiya.edu', 'Mr. Pravin Patil', 'Asst.Professor'),
+    ('pradnya28@somaiya.edu', 'Ms. Pradnya Jadhav', 'Asst.Professor'),
+    ('prashant.sb@somaiya.edu', 'Mr. Prashant Bhandare', 'Asst.Professor'),
+    ('bhagyashree.i@somaiya.edu', 'Ms. Bhagyashree Ingale', 'Asst.Professor'),
+    ('skasar@somaiya.edu', 'Mr. Sudhir Kasar', 'Skilled Asst.'),
+    ('kpashte@somaiya.edu', 'Ms. Kavita Pashte', 'Tech.Asst.'),
+    ('sdhale@somaiya.edu', 'Mr. Sachin Dhale', 'Lab.Asst.'),
+    ('bharati@somaiya.edu', 'Ms. Bharati Sansare', 'Lab.Asst.'),
+    ('lokmat874@gmail.com', 'lokmat', 'trial')
+) as v(email, full_name, designation)
+where not exists (
+  select 1 from public.faculty_directory as f
+  where lower(f.email) = lower(v.email)
+);
+
+-- Update existing rows in faculty_directory
+update public.faculty_directory as f
+set full_name = v.full_name,
+    designation = v.designation,
+    institution_id = '00000000-0000-4000-8000-000000000001'::uuid,
+    department_id = '00000000-0000-4000-8000-000000000015'::uuid,
+    is_active = true
+from (
+  values
+    ('mnemade@somaiya.edu', 'Dr. Milind U. Nemade', 'HOD & Professor'),
+    ('vwadhe@somaiya.edu', 'Dr. Vaishali R. Wadhwe', 'I/C HOD & Professor'),
+    ('gwadmare@somaiya.edu', 'Mr. Ganesh B. Wadmare', 'Asst.Professor'),
+    ('devanandkb@somaiya.edu', 'Mr. Devanand K. Bathe', 'Asst.Professor'),
+    ('sheetaljagtap@somaiya.edu', 'Dr. Sheetal G. Jagtap', 'Asst.Professor'),
+    ('pankaj@somaiya.edu', 'Mr. Pankaj V. Deshmukh', 'Asst.Professor'),
+    ('medha@somaiya.edu', 'Ms. Medha S. Asurlekar', 'Asst.Professor'),
+    ('sshah@somaiya.edu', 'Ms. Sejal B. Shah', 'Asst.Professor'),
+    ('vsagvekar@somaiya.edu', 'Dr. Vidya R. Sagvekar', 'Asst.Professor'),
+    ('sarika@somaiya.edu', 'Dr. Sarika Y. Mane', 'Asst.Professor'),
+    ('deepali.c@somaiya.edu', 'Ms. Deepali Chavan', 'Asst.Professor'),
+    ('pravin.patil@somaiya.edu', 'Mr. Pravin Patil', 'Asst.Professor'),
+    ('pradnya28@somaiya.edu', 'Ms. Pradnya Jadhav', 'Asst.Professor'),
+    ('prashant.sb@somaiya.edu', 'Mr. Prashant Bhandare', 'Asst.Professor'),
+    ('bhagyashree.i@somaiya.edu', 'Ms. Bhagyashree Ingale', 'Asst.Professor'),
+    ('skasar@somaiya.edu', 'Mr. Sudhir Kasar', 'Skilled Asst.'),
+    ('kpashte@somaiya.edu', 'Ms. Kavita Pashte', 'Tech.Asst.'),
+    ('sdhale@somaiya.edu', 'Mr. Sachin Dhale', 'Lab.Asst.'),
+    ('bharati@somaiya.edu', 'Ms. Bharati Sansare', 'Lab.Asst.'),
+    ('lokmat874@gmail.com', 'lokmat', 'trial')
+) as v(email, full_name, designation)
+where lower(f.email) = lower(v.email);
 
 -- 2. Update existing profiles for faculty to have role = 'faculty'
 update public.profiles
@@ -133,7 +176,7 @@ begin
 end;
 $$;
 
--- 5. Update guard_announcement_changes trigger to permit faculty/teacher direct publishing
+-- 5. Update guard_announcement_changes trigger to permit faculty direct publishing
 create or replace function mycollege_private.guard_announcement_changes()
 returns trigger
 language plpgsql
