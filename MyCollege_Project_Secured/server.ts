@@ -2692,7 +2692,11 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
   }
   const token = getSessionTokenFromRequest(req);
   const session = token ? activeSessions.get(token) : undefined;
-  const authorId = session?.authUserId || currentUser.id;
+  let authorId = session?.authUserId;
+  if (!authorId) {
+    const { data: authUserData } = await supabase.auth.getUser();
+    authorId = authUserData?.user?.id || currentUser.id;
+  }
 
   const { data: institution, error: institutionError } = await supabase
     .from('institutions')
@@ -5107,7 +5111,11 @@ app.post('/api/channels/:id/announcements', async (req: Request, res: Response) 
   const requiresApproval = Boolean(institution?.requireApproval && !isStaff);
   const token = getSessionTokenFromRequest(req);
   const session = token ? activeSessions.get(token) : undefined;
-  const authorId = session?.authUserId || currentUser.id;
+  let authorId = session?.authUserId;
+  if (!authorId) {
+    const { data: authUserData } = await supabase.auth.getUser();
+    authorId = authUserData?.user?.id || currentUser.id;
+  }
   const cleanTitle = title.trim();
   const cleanContent = content.trim();
   const announcementRow = {
@@ -5152,7 +5160,7 @@ app.post('/api/channels/:id/announcements', async (req: Request, res: Response) 
       id: circleAnnouncementId,
       channel_id: channel.id,
       announcement_id: announcementId,
-      author_id: currentUser.id,
+      author_id: authorId,
       author_name: currentUser.name,
       author_role: currentUser.role,
       title: cleanTitle,
