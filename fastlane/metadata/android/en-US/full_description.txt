@@ -1,0 +1,12 @@
+MyCollege is an open-source, centralized communication and collaboration platform designed specifically for college campuses. It bridges the gap between students, faculty, and administrative staff through secure, real-time messaging, targeted announcements, and interactive discussion channels.
+
+### Key Features
+
+* **Official Campus Announcements:** Receive real-time broadcast updates categorized by urgent notices, academic schedules, events, and department-specific information.
+* **Channels & Group Discussions:** Create and join dedicated communication channels for departments, clubs, batches, or study groups.
+* **Interactive Polls & Feedback:** Participate in campus votes, quick surveys, and gather community consensus on key topics.
+* **Role-Based Permissions:** Tailored access controls for Students, Faculty, and Administrators to maintain academic integrity and reduce spam.
+* **Modern & Responsive Interface:** Sleek dark-themed UI built for smooth performance across mobile and desktop devices.
+* **Privacy & Security First:** End-to-end encrypted sessions and row-level database security. No third-party advertisements or invasive tracking.
+
+MyCollege is completely Free and Open-Source Software (FOSS) released under the MIT License.

@@ -1,0 +1,6 @@
+Initial release of MyCollege (v1.0.0):
+- Real-time campus & department announcements
+- Channel chat and group messaging
+- Interactive polls and community discussions
+- Fast mobile experience powered by Capacitor
+- Fully open-source and ad-free
