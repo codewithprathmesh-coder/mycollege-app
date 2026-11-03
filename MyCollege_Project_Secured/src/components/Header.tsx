@@ -13,6 +13,8 @@ import {
   ChevronDown,
   LogOut,
   Users,
+  Moon,
+  Sun,
 } from 'lucide-react';
 import type { AppNotification, Institution, User, UserRole } from '../types';
 import { api, setActiveUserId } from '../services/api';
@@ -32,6 +34,8 @@ interface HeaderProps {
   onGoBack?: () => void;
   canGoBack?: boolean;
   onLogout?: () => void;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -49,6 +53,8 @@ export const Header: React.FC<HeaderProps> = ({
   onGoBack,
   canGoBack,
   onLogout,
+  theme,
+  onToggleTheme,
 }) => {
   const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
   const [showInstSelector, setShowInstSelector] = useState(false);
@@ -82,16 +88,19 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-200 w-full max-w-full overflow-x-clip">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-4">
+    <header
+      className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 w-full max-w-full overflow-x-clip"
+      style={{ paddingTop: 'max(8px, env(safe-area-inset-top, 0px))' }}
+    >
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-14 sm:h-16 gap-2 sm:gap-4">
           {/* Brand Zone */}
-          <div className="flex items-center gap-2.5 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
             {onGoBack && canGoBack && (
               <button
                 type="button"
                 onClick={onGoBack}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 rounded-xl transition-all border border-slate-200 shadow-2xs cursor-pointer mr-1 shrink-0"
+                className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 rounded-lg transition-all border border-slate-200 shadow-2xs cursor-pointer mr-0.5 shrink-0"
                 title="Return to previous screen"
               >
                 <ArrowLeft className="w-4 h-4 text-slate-600 group-hover:text-blue-600" />
@@ -99,21 +108,21 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-base shadow-sm shrink-0">
               M
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-lg text-slate-900 tracking-tight">MyCollege</span>
-                <span className="text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.2">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-base sm:text-lg text-slate-900 tracking-tight shrink-0">MyCollege</span>
+                <span className="text-[10px] sm:text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.2 shrink-0">
                   Campus OS
                 </span>
               </div>
               {/* Institution Switcher dropdown */}
               <div className="relative">
-                <span className="truncate max-w-[210px] text-xs text-slate-500">
-  {currentInstitution.name}
-</span>
+                <span className="block truncate max-w-[130px] sm:max-w-xs text-[11px] text-slate-500">
+                  {currentInstitution.name}
+                </span>
                 {showInstSelector && (
                   <div className="absolute left-0 mt-1 w-72 bg-white rounded-lg shadow-lg border border-slate-200 py-1.5 z-50">
                     <div className="px-3 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
@@ -172,13 +181,13 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Action Zone: Switch User, Notifications, Profile */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            {/* Quick Role Tester Switcher */}
+          {/* Action Zone: Theme, Notifications, Profile, Logout */}
+          <div className="flex items-center gap-1 sm:gap-2.5 shrink-0 ml-auto">
+            {/* Quick Role Tester Switcher (Dev Mode) */}
             {import.meta.env.DEV &&
               currentUser.role !== 'student' &&
               currentUser.role !== 'faculty' && (
-              <div className="relative">
+              <div className="relative hidden md:block">
                 <button
                   type="button"
                   onClick={() => setShowRoleSwitcher(!showRoleSwitcher)}
@@ -198,9 +207,6 @@ export const Header: React.FC<HeaderProps> = ({
                     <div className="px-3 py-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
                       Switch Test Account
                     </div>
-                    <div className="text-[11px] px-3 pb-1 text-slate-500">
-                      Test role-based permissions in real-time:
-                    </div>
                     {allUsers.map((u) => (
                       <button
                         key={u.id}
@@ -217,12 +223,7 @@ export const Header: React.FC<HeaderProps> = ({
                       >
                         <div className="flex items-center gap-2">
                           {getRoleIcon(u.role)}
-                          <div>
-                            <div className="font-medium text-slate-900">{u.name}</div>
-                            <div className="text-[11px] text-slate-500 capitalize">
-                              {getRoleLabel(u.role)} · {u.departmentName?.split(' ')[0] || 'College'}
-                            </div>
-                          </div>
+                          <div className="font-medium text-slate-900">{u.name}</div>
                         </div>
                         {u.id === currentUser.id && (
                           <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
@@ -234,16 +235,33 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
 
+            {/* Dark / Light Mode Toggle Button */}
+            {onToggleTheme && (
+              <button
+                type="button"
+                onClick={onToggleTheme}
+                className="p-1.5 sm:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
+                aria-label="Toggle theme mode"
+              >
+                {theme === 'dark' ? (
+                  <Sun className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500" />
+                ) : (
+                  <Moon className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
+                )}
+              </button>
+            )}
+
             {/* Notification Bell */}
             <button
               type="button"
               onClick={onOpenNotifications}
-              className="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+              className="relative p-1.5 sm:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
               aria-label="View notifications"
             >
               <Bell className="w-5 h-5" />
               {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold text-white bg-rose-600 rounded-full tabular-nums border-2 border-white">
+                <span className="absolute top-1 right-1 flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[9px] font-bold text-white bg-rose-600 rounded-full tabular-nums border-2 border-white">
                   {unreadCount}
                 </span>
               )}
@@ -253,9 +271,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onOpenProfile}
-              className="flex items-center gap-2 p-1 pl-1.5 pr-2 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 p-1 pl-1 pr-1 sm:pr-2 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-colors cursor-pointer"
+              aria-label="Open user profile"
             >
-              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 font-semibold text-xs flex items-center justify-center">
+              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 font-semibold text-xs flex items-center justify-center shrink-0">
                 {currentUser.name
                   .split(' ')
                   .map((n) => n[0])
@@ -271,33 +290,15 @@ export const Header: React.FC<HeaderProps> = ({
                     {currentUser.designation}
                   </span>
                 )}
-                {currentUser.username && (
-                  <span className="text-[10px] text-slate-500 font-mono">
-                    @{currentUser.username}
-                  </span>
-                )}
               </div>
             </button>
-
-            {/* Division Badge for Students */}
-            {currentUser.division && (
-              <span className="hidden xl:inline-flex items-center text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-md px-2 py-0.5">
-                {currentUser.divisionIds?.includes('sy-aids-a') && currentUser.divisionIds?.includes('sy-aids-b')
-                  ? 'Div A & B'
-                  : currentUser.divisionIds?.includes('sy-aids-a')
-                  ? 'Div A'
-                  : currentUser.divisionIds?.includes('sy-aids-b')
-                  ? 'Div B'
-                  : currentUser.division}
-              </span>
-            )}
 
             {/* Secure Sign Out Button */}
             {onLogout && (
               <button
                 type="button"
                 onClick={onLogout}
-                className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                className="p-1.5 sm:p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                 title="Sign out securely"
                 aria-label="Sign out"
               >

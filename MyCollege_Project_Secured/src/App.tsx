@@ -917,16 +917,12 @@ const toggleTheme = () => {
   const pendingApprovalsCount = announcements.filter((a) => a.status === 'pending_approval').length;
 
   return (
-    <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900 pb-20 sm:pb-12 flex flex-col font-sans">
-      {/* Light / Dark Mode Toggle */}
-<button
-  type="button"
-  onClick={toggleTheme}
-  aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-  className="fixed bottom-24 right-4 z-[100] rounded-full border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-lg hover:shadow-xl sm:bottom-6"
->
-  {theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode'}
-</button>
+    <div
+      className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900 flex flex-col font-sans"
+      style={{
+        paddingBottom: 'calc(4.5rem + max(16px, env(safe-area-inset-bottom, 0px)))',
+      }}
+    >
       {/* Primary Header */}
       <Header
         currentUser={currentUser}
@@ -943,6 +939,8 @@ const toggleTheme = () => {
         onGoBack={handleGoBack}
         canGoBack={activeTab !== 'home' || isChatConversationActive || !!selectedAnnouncement || showCreateModal || showNotifications || showProfile || showPreferenceSetup}
         onLogout={handleLogout}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
 
       {/* Primary Tab Navigation */}

@@ -167,13 +167,18 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
   const isFaculty = userRole === 'faculty';
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200 sm:hidden pb-safe">
-      <div className={`grid ${isFaculty ? 'grid-cols-4' : 'grid-cols-5'} h-14`}>
+    <div
+      className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 sm:hidden shadow-lg"
+      style={{
+        paddingBottom: 'max(14px, env(safe-area-inset-bottom, 0px))',
+      }}
+    >
+      <div className={`grid ${isFaculty ? 'grid-cols-4' : 'grid-cols-5'} h-15 items-center`}>
         <button
           type="button"
           onClick={() => onTabChange('home')}
-          className={`flex flex-col items-center justify-center text-[10px] ${
-            activeTab === 'home' ? 'text-blue-600 font-semibold' : 'text-slate-500'
+          className={`flex flex-col items-center justify-center py-1 text-[11px] font-medium transition-colors ${
+            activeTab === 'home' ? 'text-blue-600 font-bold' : 'text-slate-500'
           }`}
         >
           <Home className="w-5 h-5 mb-0.5" />
@@ -183,8 +188,8 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
         <button
           type="button"
           onClick={() => onTabChange('chat')}
-          className={`relative flex flex-col items-center justify-center text-[10px] ${
-            activeTab === 'chat' ? 'text-blue-600 font-semibold' : 'text-slate-500'
+          className={`relative flex flex-col items-center justify-center py-1 text-[11px] font-medium transition-colors ${
+            activeTab === 'chat' ? 'text-blue-600 font-bold' : 'text-slate-500'
           }`}
         >
           <MessageSquare className="w-5 h-5 mb-0.5" />
@@ -197,8 +202,8 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
         <button
           type="button"
           onClick={() => onTabChange('directory')}
-          className={`flex flex-col items-center justify-center text-[10px] ${
-            activeTab === 'directory' ? 'text-indigo-600 font-semibold' : 'text-slate-500'
+          className={`flex flex-col items-center justify-center py-1 text-[11px] font-medium transition-colors ${
+            activeTab === 'directory' ? 'text-indigo-600 font-bold' : 'text-slate-500'
           }`}
         >
           <Users className="w-5 h-5 mb-0.5" />
@@ -209,8 +214,8 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
           <button
             type="button"
             onClick={() => onTabChange('desk')}
-            className={`flex flex-col items-center justify-center text-[10px] ${
-              activeTab === 'desk' ? 'text-blue-600 font-semibold' : 'text-slate-500'
+            className={`flex flex-col items-center justify-center py-1 text-[11px] font-medium transition-colors ${
+              activeTab === 'desk' ? 'text-blue-600 font-bold' : 'text-slate-500'
             }`}
           >
             <LayoutDashboard className="w-5 h-5 mb-0.5" />
@@ -220,8 +225,8 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
           <button
             type="button"
             onClick={() => onTabChange('explore')}
-            className={`flex flex-col items-center justify-center text-[10px] ${
-              activeTab === 'explore' ? 'text-blue-600 font-semibold' : 'text-slate-500'
+            className={`flex flex-col items-center justify-center py-1 text-[11px] font-medium transition-colors ${
+              activeTab === 'explore' ? 'text-blue-600 font-bold' : 'text-slate-500'
             }`}
           >
             <Compass className="w-5 h-5 mb-0.5" />
@@ -233,8 +238,8 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
           <button
             type="button"
             onClick={() => onTabChange('desk')}
-            className={`flex flex-col items-center justify-center text-[10px] ${
-              activeTab === 'desk' ? 'text-blue-600 font-semibold' : 'text-slate-500'
+            className={`flex flex-col items-center justify-center py-1 text-[11px] font-medium transition-colors ${
+              activeTab === 'desk' ? 'text-blue-600 font-bold' : 'text-slate-500'
             }`}
           >
             <LayoutDashboard className="w-5 h-5 mb-0.5" />
@@ -244,8 +249,8 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
           <button
             type="button"
             onClick={() => onTabChange('admin')}
-            className={`relative flex flex-col items-center justify-center text-[10px] ${
-              activeTab === 'admin' ? 'text-indigo-600 font-semibold' : 'text-slate-500'
+            className={`relative flex flex-col items-center justify-center py-1 text-[11px] font-medium transition-colors ${
+              activeTab === 'admin' ? 'text-indigo-600 font-bold' : 'text-slate-500'
             }`}
           >
             <ShieldCheck className="w-5 h-5 mb-0.5" />
@@ -258,8 +263,8 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
           <button
             type="button"
             onClick={() => onTabChange('activities')}
-            className={`flex flex-col items-center justify-center text-[10px] ${
-              activeTab === 'activities' ? 'text-blue-600 font-semibold' : 'text-slate-500'
+            className={`flex flex-col items-center justify-center py-1 text-[11px] font-medium transition-colors ${
+              activeTab === 'activities' ? 'text-blue-600 font-bold' : 'text-slate-500'
             }`}
           >
             <BookmarkCheck className="w-5 h-5 mb-0.5" />
