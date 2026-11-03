@@ -2,7 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <style>
+      html, body {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+        position: relative;
+        touch-action: pan-y;
+        overscroll-behavior-x: none;
+        -webkit-overflow-scrolling: touch;
+      }
+      #root {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: hidden;
+        position: relative;
+      }
+    </style>
     <title>MyCollege — Smart College Communication Platform</title>
     <meta name="description" content="Centralized, secure, and smart communication platform for college students, faculty, coordinators, and administrators." />
     <meta property="og:title" content="MyCollege — Smart College Communication Platform" />

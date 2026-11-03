@@ -237,7 +237,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
 
           {/* Smart Preferences Quick Action */}
-          {!isFaculty && <div className="bg-white/10 backdrop-blur-md border border-white/20 p-4 rounded-2xl flex flex-col sm:flex-row md:flex-col gap-3 min-w-[260px]">
+          {!isFaculty && <div className="bg-white/10 backdrop-blur-md border border-white/20 p-4 rounded-2xl flex flex-col sm:flex-row md:flex-col gap-3 w-full sm:w-auto sm:min-w-[260px]">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5 uppercase tracking-wider">
                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />

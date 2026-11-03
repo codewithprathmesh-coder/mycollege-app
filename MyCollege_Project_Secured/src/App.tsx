@@ -830,7 +830,7 @@ const toggleTheme = () => {
   // 1. Unauthenticated -> Render Secure Student Login View
   if (authState === 'unauthenticated') {
     return (
-      <div className="min-h-screen bg-slate-900 font-sans">
+      <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-900 font-sans">
         <LoginView onLoginSuccess={handleLoginSuccess} onToast={showToast} />
         {appToast && (
           <div className="fixed bottom-5 right-5 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl border backdrop-blur-md bg-white border-slate-200">
@@ -869,7 +869,7 @@ const toggleTheme = () => {
   // 2. Profile Setup Required for First-Time Verified Student
   if (authState === 'profile_setup' && currentUser) {
     return (
-      <div className="min-h-screen bg-slate-900 font-sans">
+      <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-900 font-sans">
         <ProfileSetupView
           currentUser={currentUser}
           divisions={userDivisions}
@@ -904,7 +904,7 @@ const toggleTheme = () => {
   // 3. Loading initial app data or validating session token
   if (isLoading || !currentUser || !currentInstitution) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-50 flex items-center justify-center p-4">
         <div className="text-center space-y-3">
           <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
           <h2 className="text-sm font-semibold text-slate-700">Connecting to MyCollege Platform...</h2>
@@ -917,7 +917,7 @@ const toggleTheme = () => {
   const pendingApprovalsCount = announcements.filter((a) => a.status === 'pending_approval').length;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20 sm:pb-12 flex flex-col font-sans">
+    <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900 pb-20 sm:pb-12 flex flex-col font-sans">
       {/* Light / Dark Mode Toggle */}
 <button
   type="button"
@@ -979,7 +979,7 @@ const toggleTheme = () => {
       </div>
 
       {/* Main View Area */}
-      <main className="flex-1">
+      <main className="flex-1 min-w-0 w-full max-w-full overflow-x-hidden">
         {activeTab === 'home' && (
           <HomeView
             currentUser={currentUser}
