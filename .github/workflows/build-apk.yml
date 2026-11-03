@@ -20,40 +20,22 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install Dependencies & Capacitor
+      - name: Install Dependencies
         working-directory: ./MyCollege_Project_Secured
-        run: |
-          npm install
-          npm install @capacitor/core@^7.0.0 @capacitor/cli@^7.0.0 @capacitor/android@^7.0.0
+        run: npm install --legacy-peer-deps
 
       - name: Build Web Application
         working-directory: ./MyCollege_Project_Secured
         run: npm run build
 
-      - name: Configure Capacitor Android
+      - name: Sync Capacitor Android
         working-directory: ./MyCollege_Project_Secured
-        run: |
-          cat << 'EOF' > capacitor.config.json
-          {
-            "appId": "com.mycollege.app",
-            "appName": "MyCollege",
-            "webDir": "dist",
-            "server": {
-              "url": "https://mycollege-app.onrender.com",
-              "cleartext": true
-            }
-          }
-          EOF
-          npx cap add android
-          npx cap sync android
+        run: npx cap sync android
 
       - name: Compile Android Debug APK
         working-directory: ./MyCollege_Project_Secured/android
@@ -61,9 +43,9 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Upload APK to GitHub Actions
+      - name: Upload APK to GitHub Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MyCollege-Debug-APK
+          name: MyCollege-App-APK
           path: ./MyCollege_Project_Secured/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
