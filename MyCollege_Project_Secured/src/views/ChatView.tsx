@@ -286,7 +286,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setStudentDirectoryError(null);
       setAllStudentsDirectory([]);
       const res = await api.getChannelMemberCandidates(channelId);
-      setAllStudentsDirectory(res.candidates || []);
+      const candidates = (res.candidates || []).map((c: any) => ({
+        id: c.id || null,
+        name:
+          c.name ||
+          c.full_name ||
+          c.fullName ||
+          (c.email ? c.email.split('@')[0].replace(/[._]/g, ' ') : 'Member'),
+        email: (c.email || '').toLowerCase().trim(),
+        role: c.role === 'teacher' ? 'faculty' : (c.role || 'student'),
+        designation: c.designation || undefined,
+        rollNo: c.rollNo || c.roll_no || undefined,
+        membershipStatus: c.membershipStatus || c.membership_status || 'not_added',
+      }));
+      setAllStudentsDirectory(candidates);
     } catch (err) {
       console.error('Failed to load students directory:', err);
       setStudentDirectoryError(
@@ -517,11 +530,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
       showToast('Only group administrators or faculty can add members.', 'error');
       return;
     }
+    setStudentSearchQuery('');
     setShowAddMemberModal(true);
     void loadStudentsDirectory(selectedChannel.id);
   };
 
   const handleCloseAddMemberModal = () => {
+    setStudentSearchQuery('');
     setShowAddMemberModal(false);
   };
 
@@ -2176,63 +2191,113 @@ export const ChatView: React.FC<ChatViewProps> = ({
             )}
 
             {/* OPTION 2: SEARCH & ADD DIRECTLY FROM ROSTER */}
-            {addMemberTab === 'search' && (
-              <div className="p-6 space-y-4">
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={studentSearchQuery}
-                    onChange={(e) => setStudentSearchQuery(e.target.value)}
-                    placeholder="Search by name, roll number, or email..."
-                    className="w-full pl-9 pr-9 py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs text-slate-900 outline-none"
-                    autoFocus
-                  />
-                  {studentSearchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setStudentSearchQuery('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
+            {addMemberTab === 'search' && (() => {
+              const cleanQuery = studentSearchQuery.trim().toLowerCase();
+              const searchTokens = cleanQuery.split(/[\s,._-]+/).filter(Boolean);
+              const isEmailInput = cleanQuery.includes('@') && cleanQuery.includes('.');
 
-                <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-2xl border border-slate-200">
-                  {isLoadingStudents ? (
-                    <div className="p-6 text-center text-xs text-slate-400">Loading user directory...</div>
-                  ) : studentDirectoryError ? (
-                    <div className="p-6 text-center space-y-3">
-                      <p className="text-xs text-rose-600">{studentDirectoryError}</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (selectedChannel) void loadStudentsDirectory(selectedChannel.id);
-                        }}
-                        className="text-xs font-semibold text-blue-700 hover:text-blue-800 cursor-pointer"
-                      >
-                        Try again
-                      </button>
+              const filteredCandidates = allStudentsDirectory.filter((s) => {
+                if (searchTokens.length === 0) return true;
+                const searchable = [
+                  s.name || '',
+                  s.email || '',
+                  s.rollNo || '',
+                  s.designation || '',
+                  s.role || '',
+                ].join(' ').toLowerCase();
+
+                return searchTokens.every((token) => searchable.includes(token));
+              });
+
+              return (
+                <div className="p-6 space-y-3">
+                  <div className="space-y-1.5">
+                    <div className="relative">
+                      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        type="text"
+                        name="student-member-search"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck="false"
+                        value={studentSearchQuery}
+                        onChange={(e) => setStudentSearchQuery(e.target.value)}
+                        placeholder="Search by student name, roll number, or email..."
+                        className="w-full pl-9 pr-9 py-2.5 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs text-slate-900 outline-none transition-all shadow-2xs"
+                        autoFocus
+                      />
+                      {studentSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setStudentSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer"
+                          title="Clear search"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
-                  ) : allStudentsDirectory.length === 0 ? (
-                    <div className="p-6 text-center text-xs text-slate-400">No students or faculty found.</div>
-                  ) : (() => {
-                    const q = studentSearchQuery.trim().toLowerCase();
-                    const filtered = allStudentsDirectory.filter((s) => {
-                      if (!q) return true;
-                      const name = (s.name || '').toLowerCase();
-                      const email = (s.email || '').toLowerCase();
-                      const rollNo = (s.rollNo || '').toLowerCase();
-                      const designation = (s.designation || '').toLowerCase();
-                      const role = (s.role || '').toLowerCase();
-                      return name.includes(q) || email.includes(q) || rollNo.includes(q) || designation.includes(q) || role.includes(q);
-                    });
 
-                    if (filtered.length === 0) {
-                      return (
-                        <div className="p-6 text-center text-xs text-slate-500 space-y-2">
-                          <p>No student or faculty found matching "{studentSearchQuery}".</p>
+                    {/* Active filter count feedback */}
+                    {cleanQuery && (
+                      <div className="flex items-center justify-between text-[11px] px-1 text-slate-500">
+                        <span>
+                          {filteredCandidates.length === 0
+                            ? 'No matches'
+                            : filteredCandidates.length === 1
+                              ? '1 matching person found'
+                              : `${filteredCandidates.length} matching people found`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setStudentSearchQuery('')}
+                          className="text-blue-600 hover:text-blue-700 font-semibold cursor-pointer"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 rounded-2xl border border-slate-200">
+                    {isLoadingStudents ? (
+                      <div className="p-6 text-center text-xs text-slate-400">Loading user directory...</div>
+                    ) : studentDirectoryError ? (
+                      <div className="p-6 text-center space-y-3">
+                        <p className="text-xs text-rose-600">{studentDirectoryError}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (selectedChannel) void loadStudentsDirectory(selectedChannel.id);
+                          }}
+                          className="text-xs font-semibold text-blue-700 hover:text-blue-800 cursor-pointer"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    ) : allStudentsDirectory.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400">No students or faculty found.</div>
+                    ) : filteredCandidates.length === 0 ? (
+                      <div className="p-6 text-center space-y-3">
+                        <p className="text-xs text-slate-500">
+                          No student or faculty found matching "{studentSearchQuery}".
+                        </p>
+                        {isEmailInput ? (
+                          <button
+                            type="button"
+                            onClick={() => handleAddMemberDirect({
+                              id: null,
+                              name: cleanQuery.split('@')[0].replace(/[._]/g, ' '),
+                              email: cleanQuery,
+                              role: 'student',
+                              membershipStatus: 'not_added',
+                            })}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl inline-flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Add {cleanQuery} directly</span>
+                          </button>
+                        ) : (
                           <button
                             type="button"
                             onClick={() => setStudentSearchQuery('')}
@@ -2240,62 +2305,67 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           >
                             Clear search filter
                           </button>
-                        </div>
-                      );
-                    }
+                        )}
+                      </div>
+                    ) : (
+                      filteredCandidates.map((student) => {
+                        const isAlreadyMember =
+                          student.membershipStatus === 'active' ||
+                          members.some((member) => (member.email || '').toLowerCase() === (student.email || '').toLowerCase());
+                        const isPending = student.membershipStatus === 'pending';
+                        const isAddedJustNow = copiedId === `added-${student.email}`;
+                        const displayName = student.name && student.name !== student.email
+                          ? student.name
+                          : student.email.split('@')[0].replace(/[._]/g, ' ');
+                        const initials = (
+                          displayName.split(' ').filter(Boolean).map((n) => n[0]).join('').slice(0, 2) ||
+                          displayName.slice(0, 2)
+                        ).toUpperCase();
 
-                    return filtered.map((student) => {
-                      const isAlreadyMember =
-                        student.membershipStatus === 'active' ||
-                        members.some((member) => (member.email || '').toLowerCase() === (student.email || '').toLowerCase());
-                      const isPending = student.membershipStatus === 'pending';
-                      const isAddedJustNow = copiedId === `added-${student.email}`;
-                      const displayName = student.name || student.email || 'User';
-                      const initials = displayName.slice(0, 2).toUpperCase();
+                        return (
+                          <div
+                            key={student.email || student.id}
+                            className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0">
+                                {initials}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-bold text-xs text-slate-900 truncate">
+                                  {displayName}
+                                </div>
+                                <div className="text-[10px] text-slate-500 font-mono truncate">
+                                  {student.role === 'faculty'
+                                    ? student.designation || 'Faculty'
+                                    : student.rollNo || 'Student'} · {student.email}
+                                </div>
+                              </div>
+                            </div>
 
-                      return (
-                        <div
-                          key={student.email || student.id}
-                          className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0">
-                              {initials}
-                            </div>
-                            <div className="min-w-0">
-                              <div className="font-bold text-xs text-slate-900 truncate">
-                                {displayName}
-                              </div>
-                              <div className="text-[10px] text-slate-500 font-mono truncate">
-                                {student.role === 'faculty'
-                                  ? student.designation || 'Faculty'
-                                  : student.rollNo || 'Student'} · {student.email}
-                              </div>
-                            </div>
+                            {isAlreadyMember || isPending || isAddedJustNow ? (
+                              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg flex items-center gap-1 shrink-0">
+                                <Check className="w-3 h-3 text-emerald-600" />
+                                <span>{isPending ? 'Invitation pending' : isAddedJustNow ? 'Added!' : 'Member'}</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleAddMemberDirect(student)}
+                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl flex items-center gap-1 transition-colors shrink-0 shadow-2xs cursor-pointer"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                                <span>Add</span>
+                              </button>
+                            )}
                           </div>
-
-                          {isAlreadyMember || isPending || isAddedJustNow ? (
-                            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              <span>{isPending ? 'Invitation pending' : isAddedJustNow ? 'Added!' : 'Member'}</span>
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleAddMemberDirect(student)}
-                              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-lg flex items-center gap-1 transition-colors shrink-0 shadow-2xs cursor-pointer"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>Add</span>
-                            </button>
-                          )}
-                        </div>
-                      );
-                    });
-                  })()}
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}

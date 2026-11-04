@@ -4577,37 +4577,82 @@ app.get('/api/channels/:id/member-candidates', async (req: Request, res: Respons
   if (!userCanAddChannelMembers(currentUser, channel)) {
     return res.status(403).json({ error: 'Only faculty or group administrators can add members.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
-  if (!supabase) {
-    return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
-  }
-  const { data, error } = await supabase.rpc('mycollege_list_channel_member_candidates', {
-    p_channel_id: channel.id,
-  });
-  if (error || !data) {
-    console.error('Could not load eligible channel members:', error?.code);
-    return res.status(503).json({
-      error: 'Could not load the saved student and faculty directory. Apply the latest Circle roster migration and try again.',
-    });
-  }
 
-  const candidates = (data as Array<{
+  const candidateMap = new Map<string, {
     id: string | null;
     name: string;
     email: string;
     role: 'student' | 'faculty';
-    designation: string | null;
-    roll_no: string | null;
-    membership_status: 'not_added' | 'active' | 'pending';
-  }>).map((candidate) => ({
-    id: candidate.id,
-    name: candidate.name,
-    email: candidate.email,
-    role: candidate.role,
-    designation: candidate.designation || undefined,
-    rollNo: candidate.roll_no || undefined,
-    membershipStatus: candidate.membership_status,
-  }));
+    designation?: string;
+    rollNo?: string;
+    membershipStatus: 'not_added' | 'active' | 'pending';
+  }>();
+
+  const supabase = await getSupabaseClientForRequest(req);
+  if (supabase) {
+    const { data, error } = await supabase.rpc('mycollege_list_channel_member_candidates', {
+      p_channel_id: channel.id,
+    });
+    if (!error && Array.isArray(data)) {
+      for (const item of data as Array<any>) {
+        const email = (item.email || '').toLowerCase().trim();
+        if (!email) continue;
+        candidateMap.set(email, {
+          id: item.id || null,
+          name:
+            item.name ||
+            item.full_name ||
+            item.fullName ||
+            (email ? email.split('@')[0].replace(/[._]/g, ' ') : 'Member'),
+          email,
+          role: item.role === 'teacher' ? 'faculty' : (item.role || 'student'),
+          designation: item.designation || undefined,
+          rollNo: item.roll_no || item.rollNo || undefined,
+          membershipStatus: item.membership_status || item.membershipStatus || 'not_added',
+        });
+      }
+    } else {
+      console.warn('RPC mycollege_list_channel_member_candidates returned code:', error?.code);
+      const { data: profileRows } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, designation')
+        .eq('institution_id', currentUser.institutionId);
+      if (Array.isArray(profileRows)) {
+        for (const p of profileRows) {
+          const email = (p.email || '').toLowerCase().trim();
+          if (!email) continue;
+          candidateMap.set(email, {
+            id: p.id,
+            name: p.full_name || (email ? email.split('@')[0].replace(/[._]/g, ' ') : 'Member'),
+            email,
+            role: p.role === 'teacher' ? 'faculty' : (p.role || 'student'),
+            designation: p.designation || undefined,
+            rollNo: undefined,
+            membershipStatus: (channel.memberIds || []).includes(p.id) ? 'active' : 'not_added',
+          });
+        }
+      }
+    }
+  }
+
+  // Also include in-memory institutional users so search is never empty
+  for (const u of users) {
+    const email = (u.email || '').toLowerCase().trim();
+    if (!email || candidateMap.has(email)) continue;
+    if (u.institutionId === currentUser.institutionId) {
+      candidateMap.set(email, {
+        id: u.id,
+        name: u.name,
+        email,
+        role: u.role === 'student' ? 'student' : 'faculty',
+        designation: u.designation,
+        rollNo: u.rollNo,
+        membershipStatus: (channel.memberIds || []).includes(u.id) ? 'active' : 'not_added',
+      });
+    }
+  }
+
+  const candidates = Array.from(candidateMap.values());
   res.json({ candidates });
 });
 
