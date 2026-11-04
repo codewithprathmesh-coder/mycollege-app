@@ -199,11 +199,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // Check if current user is admin of the selected circle
   const isCircleAdmin =
     Boolean(selectedChannel) &&
-    (selectedChannel?.creatorId === currentUser.id ||
+    (currentUser.role === 'admin' ||
+      selectedChannel?.creatorId === currentUser.id ||
       (selectedChannel?.adminIds && selectedChannel.adminIds.includes(currentUser.id)) ||
+      circleAdminIds.includes(currentUser.id));
+
+  // Check if current user is an active member or authorized for this circle
+  const isCircleMember =
+    Boolean(selectedChannel) &&
+    (currentUser.role === 'admin' ||
+      selectedChannel?.creatorId === currentUser.id ||
+      (selectedChannel?.adminIds && selectedChannel.adminIds.includes(currentUser.id)) ||
+      (selectedChannel?.memberIds && selectedChannel.memberIds.includes(currentUser.id)) ||
       circleAdminIds.includes(currentUser.id) ||
-      currentUser.role === 'admin');
-  const canAddMembers = isCircleAdmin || currentUser.role === 'faculty';
+      (selectedChannel?.type === 'class' && (
+        (selectedChannel.divisionId && currentUser.divisionIds?.includes(selectedChannel.divisionId)) ||
+        (currentUser.role === 'faculty' && (!selectedChannel.departmentId || currentUser.departmentId === selectedChannel.departmentId)) ||
+        (!selectedChannel.divisionId && selectedChannel.departmentId === currentUser.departmentId)
+      )));
+
+  const canAddMembers =
+    Boolean(selectedChannel) &&
+    (isCircleAdmin ||
+      (selectedChannel?.type === 'class' && currentUser.role === 'faculty' && (!selectedChannel.departmentId || currentUser.departmentId === selectedChannel.departmentId)));
 
   // Load channels on mount
   useEffect(() => {
@@ -608,7 +626,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // 3. SEND MESSAGE (With Text, Attachment, or Reply-To)
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!selectedChannel) return;
+    if (!selectedChannel || !isCircleMember) return;
 
     const content = messageInput.trim();
     if (!content && !attachment) return;
@@ -666,7 +684,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // 4. WHATSAPP REACTIONS HANDLER
   const handleToggleReaction = async (messageId: string, emoji: string) => {
-    if (!selectedChannel) return;
+    if (!selectedChannel || !isCircleMember) return;
     try {
       // Optimistic update
       setMessages((prev) =>
@@ -709,7 +727,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // 6. WHATSAPP DELETE MESSAGE HANDLER
   const handleDeleteMessage = async (messageId: string) => {
-    if (!selectedChannel) return;
+    if (!selectedChannel || !isCircleMember) return;
     try {
       await api.deleteMessage(selectedChannel.id, messageId);
       setMessages((prev) =>
@@ -728,7 +746,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // 7. WHATSAPP POLL CREATION & VOTING
   const handleCreatePoll = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedChannel) return;
+    if (!selectedChannel || !isCircleMember) return;
     const cleanQuestion = pollQuestion.trim();
     const validOptions = pollOptions.map((o) => o.trim()).filter(Boolean);
 
@@ -756,7 +774,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   const handleVotePoll = async (messageId: string, optionId: string) => {
-    if (!selectedChannel) return;
+    if (!selectedChannel || !isCircleMember) return;
     try {
       const res = await api.votePoll(selectedChannel.id, messageId, optionId);
       setMessages((prev) =>
@@ -884,8 +902,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
     );
   });
 
-  // Filter channels in sidebar
+  // Filter channels in sidebar - only authorized active members can see groups
   const filteredChannels = channels.filter((c) => {
+    const hasAccess =
+      currentUser.role === 'admin' ||
+      c.creatorId === currentUser.id ||
+      (c.adminIds && c.adminIds.includes(currentUser.id)) ||
+      (c.memberIds && c.memberIds.includes(currentUser.id)) ||
+      (c.type === 'class' && (
+        (c.divisionId && currentUser.divisionIds?.includes(c.divisionId)) ||
+        (currentUser.role === 'faculty' && (!c.departmentId || currentUser.departmentId === c.departmentId)) ||
+        (!c.divisionId && c.departmentId && currentUser.departmentId === c.departmentId)
+      ));
+    if (!hasAccess) return false;
+
     const matchesFilter = channelFilter === 'all' || c.type === channelFilter;
     const matchesSearch =
       !channelSearch.trim() ||
@@ -1621,8 +1651,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   {/* MESSAGE COMPOSER / INPUT SECTION */}
                   {/* =================================================================== */}
                   <div className="p-3 sm:p-4 border-t border-slate-200 bg-white space-y-2 shrink-0 relative">
-                    {/* Only Admins Can Send Messages Lock Banner */}
-                    {selectedChannel.onlyAdminsCanMessage && !isCircleAdmin ? (
+                    {/* Non-Member Access Lock Banner */}
+                    {!isCircleMember ? (
+                      <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-xs font-semibold text-slate-600 text-center">
+                        <Lock className="w-4 h-4 text-slate-500 shrink-0" />
+                        <span>You are not a member of this circle. Only invited members can send messages.</span>
+                      </div>
+                    ) : selectedChannel.onlyAdminsCanMessage && !isCircleAdmin ? (
                       <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-center gap-2 text-xs font-semibold text-amber-900">
                         <Lock className="w-4 h-4 text-amber-600" />
                         <span>Only group administrators can send messages to this circle.</span>

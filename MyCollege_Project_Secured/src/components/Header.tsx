@@ -90,17 +90,17 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header
       className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 w-full max-w-full overflow-x-clip"
-      style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 10px)' }}
+      style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 14px)' }}
     >
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-14 sm:h-16 gap-2 sm:gap-4">
+      <div className="max-w-7xl mx-auto px-2.5 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-14 sm:h-16 gap-1.5 sm:gap-4">
           {/* Brand Zone */}
-          <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 shrink">
             {onGoBack && canGoBack && (
               <button
                 type="button"
                 onClick={onGoBack}
-                className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 rounded-lg transition-all border border-slate-200 shadow-2xs cursor-pointer mr-0.5 shrink-0"
+                className="flex items-center gap-1 px-1.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 rounded-lg transition-all border border-slate-200 shadow-2xs cursor-pointer mr-0.5 shrink-0"
                 title="Return to previous screen"
               >
                 <ArrowLeft className="w-4 h-4 text-slate-600 group-hover:text-blue-600" />
@@ -108,19 +108,19 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-base shadow-sm shrink-0">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm sm:text-base shadow-sm shrink-0">
               M
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-base sm:text-lg text-slate-900 tracking-tight shrink-0">MyCollege</span>
-                <span className="text-[10px] sm:text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.2 shrink-0">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1">
+                <span className="font-bold text-sm sm:text-lg text-slate-900 tracking-tight shrink-0">MyCollege</span>
+                <span className="hidden min-[400px]:inline-flex text-[9px] sm:text-[11px] font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded px-1.5 py-0.2 shrink-0">
                   Campus OS
                 </span>
               </div>
               {/* Institution Switcher dropdown */}
               <div className="relative">
-                <span className="block truncate max-w-[130px] sm:max-w-xs text-[11px] text-slate-500">
+                <span className="block truncate max-w-[105px] sm:max-w-xs text-[10px] sm:text-[11px] text-slate-500">
                   {currentInstitution.name}
                 </span>
                 {showInstSelector && (
@@ -182,7 +182,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Action Zone: Theme, Notifications, Profile, Logout */}
-          <div className="flex items-center gap-1 sm:gap-2.5 shrink-0 ml-auto">
+          <div className="flex items-center gap-0.5 sm:gap-2 shrink-0 ml-auto">
             {/* Quick Role Tester Switcher (Dev Mode) */}
             {import.meta.env.DEV &&
               currentUser.role !== 'student' &&
@@ -240,7 +240,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={onToggleTheme}
-                className="p-1.5 sm:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                className="p-1 sm:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
                 title={`Switch to ${theme === 'light' ? 'Dark' : 'Light'} Mode`}
                 aria-label="Toggle theme mode"
               >
@@ -256,12 +256,12 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onOpenNotifications}
-              className="relative p-1.5 sm:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              className="relative p-1 sm:p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
               aria-label="View notifications"
             >
-              <Bell className="w-5 h-5" />
+              <Bell className="w-4 h-4 sm:w-5 sm:h-5" />
               {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 flex items-center justify-center min-w-[16px] h-[16px] px-1 text-[9px] font-bold text-white bg-rose-600 rounded-full tabular-nums border-2 border-white">
+                <span className="absolute top-0.5 right-0.5 sm:top-1 sm:right-1 flex items-center justify-center min-w-[14px] sm:min-w-[16px] h-[14px] sm:h-[16px] px-0.5 text-[8px] sm:text-[9px] font-bold text-white bg-rose-600 rounded-full tabular-nums border-2 border-white">
                   {unreadCount}
                 </span>
               )}
@@ -271,10 +271,10 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onOpenProfile}
-              className="flex items-center gap-1.5 p-1 pl-1 pr-1 sm:pr-2 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-colors cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 p-0.5 sm:p-1 pl-0.5 sm:pl-1 pr-0.5 sm:pr-2 rounded-lg hover:bg-slate-100 border border-transparent hover:border-slate-200 transition-colors cursor-pointer"
               aria-label="Open user profile"
             >
-              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 font-semibold text-xs flex items-center justify-center shrink-0">
+              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-blue-100 text-blue-700 font-semibold text-xs flex items-center justify-center shrink-0">
                 {currentUser.name
                   .split(' ')
                   .map((n) => n[0])
@@ -298,7 +298,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={onLogout}
-                className="p-1.5 sm:p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                className="p-1 sm:p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                 title="Sign out securely"
                 aria-label="Sign out"
               >

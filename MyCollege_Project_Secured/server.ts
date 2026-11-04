@@ -545,6 +545,17 @@ interface ChannelMessageDbRow {
 
 function mapChannelRow(row: ChannelDbRow, memberships: ChannelMemberDbRow[] = []): ChatChannel {
   const activeMembers = memberships.filter((member) => member.status === 'active');
+  const memberIds = activeMembers.map((member) => member.profile_id);
+  const adminIds = activeMembers
+    .filter((member) => member.role === 'admin' || member.role === 'owner')
+    .map((member) => member.profile_id);
+
+  // Automatically guarantee creator is recognized in memberIds & adminIds
+  if (row.creator_id) {
+    if (!memberIds.includes(row.creator_id)) memberIds.push(row.creator_id);
+    if (!adminIds.includes(row.creator_id)) adminIds.push(row.creator_id);
+  }
+
   return {
     id: row.id,
     institutionId: row.institution_id,
@@ -555,12 +566,10 @@ function mapChannelRow(row: ChannelDbRow, memberships: ChannelMemberDbRow[] = []
     description: row.description,
     type: row.type,
     isOfficial: row.is_official,
-    memberCount: activeMembers.length,
+    memberCount: Math.max(activeMembers.length, memberIds.length),
     creatorId: row.creator_id || undefined,
-    adminIds: activeMembers
-      .filter((member) => member.role === 'admin' || member.role === 'owner')
-      .map((member) => member.profile_id),
-    memberIds: activeMembers.map((member) => member.profile_id),
+    adminIds,
+    memberIds,
     inviteCode: row.invite_code || undefined,
     pinnedAnnouncementId: row.pinned_announcement_id || undefined,
     pinnedMessageId: row.pinned_message_id || undefined,
@@ -571,23 +580,59 @@ function mapChannelRow(row: ChannelDbRow, memberships: ChannelMemberDbRow[] = []
 }
 
 function userCanAccessChannel(user: User, channel: ChatChannel): boolean {
+  if (!user || !channel) return false;
+
+  // 1. System administrators have oversight across the institution
+  if (user.role === 'admin') return true;
+
+  // 2. Creator and appointed admins always have access
+  if (channel.creatorId && channel.creatorId === user.id) return true;
+  if (channel.adminIds && channel.adminIds.includes(user.id)) return true;
+
+  // 3. Explicit active group members always have access
+  if (channel.memberIds && channel.memberIds.includes(user.id)) return true;
+
+  // 4. Official Class / Division Channels:
+  // Class channels are bound to specific academic divisions
+  if (channel.type === 'class') {
+    // If bound to a specific division, only students enrolled in that division can access
+    if (channel.divisionId) {
+      if (user.divisionIds && user.divisionIds.includes(channel.divisionId)) return true;
+      // Faculty teaching this department/division have access
+      if (user.role === 'faculty' && (!channel.departmentId || user.departmentId === channel.departmentId)) {
+        return true;
+      }
+      return false;
+    }
+    // General class channel without division
+    if (channel.departmentId && user.departmentId === channel.departmentId) {
+      return true;
+    }
+  }
+
+  // 5. All other custom groups (project, club, general, direct):
+  // Non-members (students OR faculty) DO NOT HAVE ACCESS!
+  return false;
+}
+
+function userCanManageChannel(user: User, channel: ChatChannel): boolean {
+  if (!user || !channel) return false;
   return Boolean(
     user.role === 'admin' ||
-    user.role === 'faculty' ||
-    channel.memberIds?.includes(user.id)
+    (channel.creatorId && channel.creatorId === user.id) ||
+    (channel.adminIds && channel.adminIds.includes(user.id))
   );
 }
 
 function userCanAddChannelMembers(user: User, channel: ChatChannel): boolean {
-  return user.role === 'faculty' || userCanManageChannel(user, channel);
-}
-
-function userCanManageChannel(user: User, channel: ChatChannel): boolean {
-  return Boolean(
-    user.role === 'admin' ||
-    channel.creatorId === user.id ||
-    channel.adminIds?.includes(user.id)
-  );
+  if (!user || !channel) return false;
+  if (user.role === 'admin') return true;
+  // Faculty can manage class channels for their department
+  if (user.role === 'faculty' && channel.type === 'class') {
+    return !channel.departmentId || user.departmentId === channel.departmentId;
+  }
+  // For all other groups, only circle creator / appointed admins can add members
+  return userCanManageChannel(user, channel);
 }
 
 function mapChannelMessageRow(
@@ -5643,7 +5688,7 @@ function broadcastToInstitution(institutionId: string, payload: {
   [key: string]: unknown;
 }) {
   const channelId = payload.channelId || payload.channel?.id;
-  const channel = channelId ? chatChannels.find((item) => item.id === channelId) : undefined;
+  const channel = (channelId ? chatChannels.find((item) => item.id === channelId) : undefined) || payload.channel;
   if (!channel || channel.institutionId !== institutionId) return;
 
   const broadcastPayload = payload.user && typeof payload.user === 'object'
