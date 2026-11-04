@@ -172,6 +172,49 @@ const toggleTheme = () => {
     loadInitialData();
   }, [loadInitialData]);
 
+  useEffect(() => {
+    if (!currentUser || !['authenticated', 'terms_required', 'profile_setup'].includes(authState)) {
+      return;
+    }
+
+    const refreshIntervalMs = 12 * 60 * 60 * 1000;
+    let lastRefreshAt = 0;
+    let refreshInProgress = false;
+
+    const refreshSession = async () => {
+      if (refreshInProgress) return;
+      refreshInProgress = true;
+      try {
+        const session = await api.getAuthSession();
+        if (!session.authenticated) {
+          console.warn('The server no longer recognizes the active sign-in session.');
+          return;
+        }
+        lastRefreshAt = Date.now();
+      } catch (error) {
+        console.error('Could not refresh the sign-in session; it will be retried:', error);
+      } finally {
+        refreshInProgress = false;
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void refreshSession();
+    }, refreshIntervalMs);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastRefreshAt >= refreshIntervalMs) {
+        void refreshSession();
+      }
+    };
+
+    void refreshSession();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [authState, currentUser?.id]);
+
   // Reload announcements on filter change
   const fetchAnnouncements = useCallback(async () => {
     if (!currentInstitution) return;

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  ShieldCheck,
   Mail,
   ArrowRight,
   KeyRound,
@@ -133,7 +132,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onToast })
         </div>
         <div className="flex items-center justify-center gap-2 mb-1">
           <span className="text-xs font-bold uppercase tracking-wider text-blue-700 bg-blue-100/80 px-2.5 py-0.5 rounded-full border border-blue-200">
-            K. J. Somaiya College of Engineering
+            K. J. Somaiya Institute of Technology
           </span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -142,10 +141,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onToast })
         <p className="text-xs sm:text-sm text-slate-600 mt-1">
           Sign in using your authorized college or faculty email
         </p>
-        <div className="inline-flex items-center gap-1.5 mt-2 text-[11px] font-semibold text-slate-500 bg-white/80 border border-slate-200 px-3 py-1 rounded-full shadow-2xs">
-          <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-          <span>SY AI-DS 2026–27 (Divisions A & B)</span>
-        </div>
       </div>
 
       {/* Main Login Card */}
@@ -328,7 +323,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess, onToast })
       {/* College Footer & Security Note */}
       <div className="mt-8 text-center text-xs text-slate-400 space-y-1">
         <p>Protected by Somaiya Institution Access Control & Single-Use Verification.</p>
-        <p>© 2026–27 K. J. Somaiya College of Engineering · AI-DS Department</p>
+        <p>© 2026–27 K. J. Somaiya Institute of Technology</p>
       </div>
     </div>
   );

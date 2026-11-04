@@ -195,6 +195,16 @@ export interface ChatChannel {
   unreadCount?: number;
 }
 
+export interface ChannelMemberCandidate {
+  id: string | null;
+  name: string;
+  email: string;
+  role: 'student' | 'faculty';
+  designation?: string;
+  rollNo?: string;
+  membershipStatus: 'not_added' | 'active' | 'pending';
+}
+
 export interface CircleAnnouncement {
   id: string;
   channelId: string;

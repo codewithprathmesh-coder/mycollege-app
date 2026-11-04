@@ -338,7 +338,7 @@ export const ProfileSetupView: React.FC<ProfileSetupViewProps> = ({
       </div>
 
       <div className="mt-8 text-center text-xs text-slate-400">
-        <p>© 2026–27 K. J. Somaiya College of Engineering · AI-DS Department</p>
+        <p>© 2026–27 K. J. Somaiya Institute of Technology</p>
       </div>
     </div>
   );

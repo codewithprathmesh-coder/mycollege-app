@@ -5,6 +5,7 @@ import type {
   ApprovedDatasetReport,
   ApprovedStudent,
   AuditLog,
+  ChannelMemberCandidate,
   Department,
   Division,
   EventRegistration,
@@ -335,6 +336,10 @@ export const api = {
     return request(`/api/channels/${channelId}/members`);
   },
 
+  async getChannelMemberCandidates(channelId: string): Promise<{ candidates: ChannelMemberCandidate[] }> {
+    return request(`/api/channels/${channelId}/member-candidates`);
+  },
+
   async makeGroupAdmin(channelId: string, userId: string): Promise<{ success: boolean; adminIds: string[]; user: any }> {
     return request(`/api/channels/${channelId}/admins`, {
       method: 'POST',
@@ -370,10 +375,15 @@ export const api = {
     });
   },
 
-  async addMemberToChannel(channelId: string, userId: string): Promise<{ success: boolean; member: any; memberCount: number }> {
+  async addMemberToChannel(channelId: string, email: string): Promise<{
+    success: boolean;
+    member?: any;
+    memberCount: number;
+    pending?: boolean;
+  }> {
     return request(`/api/channels/${channelId}/members`, {
       method: 'POST',
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ email }),
     });
   },
 

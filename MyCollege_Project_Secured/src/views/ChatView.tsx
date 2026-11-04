@@ -51,6 +51,7 @@ import type {
   ChannelType,
   ChatChannel,
   ChatMessage,
+  ChannelMemberCandidate,
   CircleAnnouncement,
   Institution,
   PriorityLevel,
@@ -172,8 +173,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [addMemberTab, setAddMemberTab] = useState<'search' | 'link'>('search');
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
-  const [allStudentsDirectory, setAllStudentsDirectory] = useState<User[]>([]);
+  const [allStudentsDirectory, setAllStudentsDirectory] = useState<ChannelMemberCandidate[]>([]);
   const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+  const [studentDirectoryError, setStudentDirectoryError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -200,8 +202,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     (selectedChannel?.creatorId === currentUser.id ||
       (selectedChannel?.adminIds && selectedChannel.adminIds.includes(currentUser.id)) ||
       circleAdminIds.includes(currentUser.id) ||
-      currentUser.role === 'admin' ||
-      currentUser.role === 'faculty');
+      currentUser.role === 'admin');
+  const canAddMembers = isCircleAdmin || currentUser.role === 'faculty';
 
   // Load channels on mount
   useEffect(() => {
@@ -211,15 +213,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const loadChannels = async () => {
     try {
       const res = await api.getChannels(currentInstitution.id);
-      setChannels(res.channels || []);
-      if (res.channels?.length > 0) {
-        if (initialChannelId) {
-          const found = res.channels.find((c: ChatChannel) => c.id === initialChannelId);
-          setSelectedChannel(found || res.channels[0]);
-        } else if (!selectedChannel) {
-          setSelectedChannel(res.channels[0]);
+      const availableChannels = res.channels || [];
+      setChannels(availableChannels);
+      setSelectedChannel((current) => {
+        if (current) {
+          return availableChannels.find((channel) => channel.id === current.id) ||
+            availableChannels[0] ||
+            null;
         }
-      }
+        return (
+          availableChannels.find((channel) => channel.id === initialChannelId) ||
+          availableChannels[0] ||
+          null
+        );
+      });
     } catch (err) {
       console.error('Failed to load channels:', err);
     }
@@ -227,7 +234,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // Load messages, members, announcements when channel changes
   useEffect(() => {
-    if (!selectedChannel) return;
+    if (!selectedChannel) {
+      setMessages([]);
+      setMembers([]);
+      setCircleAnnouncements([]);
+      return;
+    }
+    setMessages([]);
+    setMembers([]);
+    setCircleAnnouncements([]);
     loadMessages(selectedChannel.id);
     loadCircleMembers(selectedChannel.id);
     loadCircleAnnouncements(selectedChannel.id);
@@ -265,18 +280,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
     return () => window.removeEventListener('popstate', handleChannelPopState);
   }, [channels]);
 
-  // Pre-load student directory for instant Add Member experience
-  useEffect(() => {
-    loadStudentsDirectory();
-  }, [currentInstitution.id]);
-
-  const loadStudentsDirectory = async () => {
+  const loadStudentsDirectory = async (channelId: string) => {
     try {
       setIsLoadingStudents(true);
-      const res = await api.getUsers(currentInstitution.id);
-      setAllStudentsDirectory(res.users.filter((user) => user.role === 'student'));
+      setStudentDirectoryError(null);
+      setAllStudentsDirectory([]);
+      const res = await api.getChannelMemberCandidates(channelId);
+      setAllStudentsDirectory(res.candidates || []);
     } catch (err) {
       console.error('Failed to load students directory:', err);
+      setStudentDirectoryError(
+        err instanceof Error ? err.message : 'Could not load the saved student and faculty directory.'
+      );
     } finally {
       setIsLoadingStudents(false);
     }
@@ -498,28 +513,42 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // 1. ADD MEMBERS HANDLERS (Completely Fixed & Verified)
   const handleOpenAddMemberModal = () => {
+    if (!selectedChannel || !canAddMembers) return;
     setShowAddMemberModal(true);
-    loadStudentsDirectory();
+    void loadStudentsDirectory(selectedChannel.id);
   };
 
   const handleCloseAddMemberModal = () => {
     setShowAddMemberModal(false);
   };
 
-  const handleAddMemberDirect = async (user: User) => {
+  const handleAddMemberDirect = async (candidate: ChannelMemberCandidate) => {
     if (!selectedChannel) return;
     try {
-      await api.addMemberToChannel(selectedChannel.id, user.id);
-      setMembers((prev) => {
-        if (prev.some((m) => m.id === user.id)) return prev;
-        return [...prev, user];
-      });
-      setSelectedChannel((prev) => (prev ? { ...prev, memberCount: prev.memberCount + 1 } : null));
-      setCopiedId(`added-${user.id}`);
-      showToast(`Added ${user.name} to #${selectedChannel.name}`, 'success');
+      const response = await api.addMemberToChannel(selectedChannel.id, candidate.email);
+      if (response.member) {
+        setMembers((previous) => previous.some((member) => member.id === response.member.id)
+          ? previous
+          : [...previous, response.member as User]);
+      }
+      setSelectedChannel((previous) => (
+        previous ? { ...previous, memberCount: response.memberCount } : null
+      ));
+      setAllStudentsDirectory((previous) => previous.map((entry) => (
+        entry.email === candidate.email
+          ? { ...entry, membershipStatus: response.pending ? 'pending' : 'active' }
+          : entry
+      )));
+      setCopiedId(`added-${candidate.email}`);
+      showToast(
+        response.pending
+          ? `Invitation saved for ${candidate.name}. They will join after signing in.`
+          : `Added ${candidate.name} to #${selectedChannel.name}`,
+        'success'
+      );
       setTimeout(() => setCopiedId(null), 2500);
     } catch (err: any) {
-      showToast(err.message || 'Failed to add student to group', 'error');
+      showToast(err.message || 'Failed to add this person to the group', 'error');
     }
   };
 
@@ -1119,15 +1148,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </button>
 
                     {/* ADD MEMBERS BUTTON (100% Usable & Functional) */}
-                    <button
-                      type="button"
-                      onClick={handleOpenAddMemberModal}
-                      className="px-2.5 sm:px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0"
-                      title="Add classmates to this group"
-                    >
-                      <UserPlus className="w-3.5 h-3.5 shrink-0" />
-                      <span className="inline font-semibold">Add Members</span>
-                    </button>
+                    {canAddMembers && (
+                      <button
+                        type="button"
+                        onClick={handleOpenAddMemberModal}
+                        className="px-2.5 sm:px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer shrink-0"
+                        title="Add students or faculty to this group"
+                      >
+                        <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                        <span className="inline font-semibold">Add Members</span>
+                      </button>
+                    )}
 
                     {/* Group Settings Button (WhatsApp Group Info / Permissions) */}
                     {isCircleAdmin && (
@@ -1745,7 +1776,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                         <UserPlus className="w-4 h-4" />
                                       </div>
                                       <span className="text-xs font-bold text-slate-800">Invite</span>
-                                      <span className="text-[10px] text-slate-400 font-mono">Add students</span>
+                                      <span className="text-[10px] text-slate-400 font-mono">Add students or faculty</span>
                                     </button>
                                   )}
                                 </div>
@@ -1892,14 +1923,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </p>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleOpenAddMemberModal}
-                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
-                    >
-                      <UserPlus className="w-3.5 h-3.5" />
-                      <span>Add Members</span>
-                    </button>
+                    {canAddMembers && (
+                      <button
+                        type="button"
+                        onClick={handleOpenAddMemberModal}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        <span>Add Members</span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Members List with WhatsApp Admin Controls */}
@@ -1908,8 +1941,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       const isAdm =
                         circleAdminIds.includes(member.id) ||
                         member.id === selectedChannel.creatorId ||
-                        member.role === 'admin' ||
-                        member.role === 'faculty';
+                        member.role === 'admin';
                       const isSelf = member.id === currentUser.id;
 
                       return (
@@ -2023,7 +2055,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     Add Members to {selectedChannel.title}
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Share direct invite link or add registered students by name
+                    Share an invite link or add registered students and faculty by name
                   </p>
                 </div>
               </div>
@@ -2055,7 +2087,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 type="button"
                 onClick={() => {
                   setAddMemberTab('search');
-                  loadStudentsDirectory();
+                  if (selectedChannel) void loadStudentsDirectory(selectedChannel.id);
                 }}
                 className={`flex-1 pb-3 text-xs sm:text-sm font-semibold border-b-2 flex items-center justify-center gap-2 transition-colors cursor-pointer ${
                   addMemberTab === 'search'
@@ -2133,7 +2165,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     type="text"
                     value={studentSearchQuery}
                     onChange={(e) => setStudentSearchQuery(e.target.value)}
-                    placeholder="Search by student name, roll number, or email..."
+                    placeholder="Search by name, roll number, or email..."
                     className="w-full pl-9 pr-4 py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs text-slate-900 outline-none"
                     autoFocus
                   />
@@ -2141,9 +2173,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-2xl border border-slate-200">
                   {isLoadingStudents ? (
-                    <div className="p-6 text-center text-xs text-slate-400">Loading student directory...</div>
+                    <div className="p-6 text-center text-xs text-slate-400">Loading user directory...</div>
+                  ) : studentDirectoryError ? (
+                    <div className="p-6 text-center space-y-3">
+                      <p className="text-xs text-rose-600">{studentDirectoryError}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedChannel) void loadStudentsDirectory(selectedChannel.id);
+                        }}
+                        className="text-xs font-semibold text-blue-700 hover:text-blue-800"
+                      >
+                        Try again
+                      </button>
+                    </div>
                   ) : allStudentsDirectory.length === 0 ? (
-                    <div className="p-6 text-center text-xs text-slate-400">No students found.</div>
+                    <div className="p-6 text-center text-xs text-slate-400">No students or faculty found.</div>
                   ) : (
                     allStudentsDirectory
                       .filter((s) => {
@@ -2156,12 +2201,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         );
                       })
                       .map((student) => {
-                        const isAlreadyMember = members.some((m) => m.id === student.id);
-                        const isAddedJustNow = copiedId === `added-${student.id}`;
+                        const isAlreadyMember = student.membershipStatus === 'active' ||
+                          members.some((member) => member.email.toLowerCase() === student.email.toLowerCase());
+                        const isPending = student.membershipStatus === 'pending';
+                        const isAddedJustNow = copiedId === `added-${student.email}`;
 
                         return (
                           <div
-                            key={student.id}
+                            key={student.email}
                             className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
@@ -2173,15 +2220,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                   {student.name}
                                 </div>
                                 <div className="text-[10px] text-slate-500 font-mono truncate">
-                                  {student.rollNo || '000'} · {student.email}
+                                  {student.role === 'faculty'
+                                    ? student.designation || 'Faculty'
+                                    : student.rollNo || 'Student'} · {student.email}
                                 </div>
                               </div>
                             </div>
 
-                            {isAlreadyMember || isAddedJustNow ? (
+                            {isAlreadyMember || isPending || isAddedJustNow ? (
                               <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
                                 <Check className="w-3 h-3 text-emerald-600" />
-                                <span>{isAddedJustNow ? 'Added!' : 'Member'}</span>
+                                <span>{isPending ? 'Invitation pending' : isAddedJustNow ? 'Added!' : 'Member'}</span>
                               </span>
                             ) : (
                               <button

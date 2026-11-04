@@ -398,6 +398,8 @@ let chatMessages: ChatMessage[] = [
 ];
 
 const sessionCookieName = 'mycollege_session';
+const sessionMaxAgeSeconds = 400 * 24 * 60 * 60;
+const sessionRenewalThresholdMs = 30 * 24 * 60 * 60 * 1000;
 
 function getSessionTokenFromRequest(req: { headers: { cookie?: string } }): string | null {
   const sessionCookie = req.headers.cookie
@@ -552,6 +554,26 @@ function mapChannelRow(row: ChannelDbRow, memberships: ChannelMemberDbRow[] = []
   };
 }
 
+function userCanAccessChannel(user: User, channel: ChatChannel): boolean {
+  return Boolean(
+    user.role === 'admin' ||
+    user.role === 'faculty' ||
+    channel.memberIds?.includes(user.id)
+  );
+}
+
+function userCanAddChannelMembers(user: User, channel: ChatChannel): boolean {
+  return user.role === 'faculty' || userCanManageChannel(user, channel);
+}
+
+function userCanManageChannel(user: User, channel: ChatChannel): boolean {
+  return Boolean(
+    user.role === 'admin' ||
+    channel.creatorId === user.id ||
+    channel.adminIds?.includes(user.id)
+  );
+}
+
 function mapChannelMessageRow(
   row: ChannelMessageDbRow,
   reactions: Record<string, string[]> = {}
@@ -611,6 +633,11 @@ async function loadChannelForRequest(
     return null;
   }
   const channel = mapChannelRow(row as ChannelDbRow, (memberships || []) as ChannelMemberDbRow[]);
+  const currentUser = getCurrentUser(req);
+  if (channel.institutionId !== currentUser.institutionId || !userCanAccessChannel(currentUser, channel)) {
+    res.status(403).json({ error: 'You must be an active group member to access this circle.' });
+    return null;
+  }
   const cacheIndex = chatChannels.findIndex((candidate) => candidate.id === channel.id);
   if (cacheIndex >= 0) chatChannels[cacheIndex] = channel;
   else chatChannels.push(channel);
@@ -734,6 +761,13 @@ app.use('/api', async (req: Request, res: Response, next) => {
     }
 
     if (session) {
+      if (session.expiresAt - Date.now() <= sessionRenewalThresholdMs) {
+        session.expiresAt = Date.now() + sessionMaxAgeSeconds * 1000;
+        setSessionCookie(res, token, sessionMaxAgeSeconds);
+        void saveSessionRecord(session).catch((saveError: unknown) => {
+          console.error('Could not renew the persistent sign-in session:', saveError);
+        });
+      }
       const previousSnapshot = JSON.stringify(session.userSnapshot);
       const user = users.find((candidate) => candidate.id === session.userId);
       if (user) {
@@ -1176,7 +1210,6 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
 
   // Generate genuine session token
   const token = crypto.randomBytes(32).toString('base64url');
-  const sessionMaxAgeSeconds = 30 * 24 * 60 * 60;
   const session: SessionRecord = {
     token,
     userId: user.id,
@@ -1413,6 +1446,12 @@ app.get('/api/auth/session', async (req: Request, res: Response) => {
   const user = getStrictAuthenticatedUser(req);
   if (!user) {
     return res.json({ authenticated: false, user: null });
+  }
+  const supabase = await getSupabaseClientForRequest(req);
+  if (!supabase) {
+    return res.status(503).json({
+      error: 'Your sign-in is still active, but could not be refreshed right now. Please try again.',
+    });
   }
   const matchingDivisions = DIVISIONS.filter((d) => user.divisionIds?.includes(d.id));
   res.json({ authenticated: true, user, divisions: matchingDivisions });
@@ -3584,13 +3623,13 @@ app.get('/api/channels', async (req: Request, res: Response) => {
     return res.status(503).json({ error: 'Could not load groups. Please try again later.' });
   }
   const channelRows = (rows || []) as ChannelDbRow[];
-  const channelIds = channelRows.map((channel) => channel.id);
+  const allChannelIds = channelRows.map((channel) => channel.id);
   let memberships: ChannelMemberDbRow[] = [];
-  if (channelIds.length > 0) {
+  if (allChannelIds.length > 0) {
     const { data, error: membershipsError } = await supabase
       .from('channel_members')
       .select('channel_id, profile_id, role, status')
-      .in('channel_id', channelIds);
+      .in('channel_id', allChannelIds);
     if (membershipsError) {
       console.error('Could not load channel memberships from Supabase:', membershipsError.code);
       return res.status(503).json({ error: 'Could not load group memberships. Please try again later.' });
@@ -3600,6 +3639,8 @@ app.get('/api/channels', async (req: Request, res: Response) => {
   let list = channelRows.map((row) =>
     mapChannelRow(row, memberships.filter((member) => member.channel_id === row.id))
   );
+  list = list.filter((channel) => userCanAccessChannel(currentUser, channel));
+  const channelIds = list.map((channel) => channel.id);
   if (channelIds.length > 0) {
     const { data: recentMessages, error: recentMessagesError } = await supabase
       .from('channel_messages')
@@ -3646,13 +3687,6 @@ app.get('/api/channels', async (req: Request, res: Response) => {
     ...chatChannels.filter((channel) => channel.institutionId !== institutionId),
     ...list,
   ];
-
-  // Enforce division authorization on channel access
-  list = list.filter((c) => {
-    if (!c.divisionId) return true; // public / general circle
-    if (currentUser.role === 'admin' || currentUser.role === 'faculty') return true;
-    return currentUser.divisionIds && currentUser.divisionIds.includes(c.divisionId);
-  });
 
   if (type && type !== 'all') {
     list = list.filter((c) => c.type === type);
@@ -3907,11 +3941,7 @@ app.post('/api/channels/:id/messages', async (req: Request, res: Response) => {
     }
   }
 
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    (channel.adminIds && channel.adminIds.includes(currentUser.id)) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
 
   // WhatsApp Group Permission: Only admins can send messages
   if (channel.onlyAdminsCanMessage && !isCircleAdmin) {
@@ -4120,11 +4150,7 @@ app.post('/api/channels/:id/messages/:msgId/pin', async (req: Request, res: Resp
     return res.status(403).json({ error: 'You cannot update another institution’s group.' });
   }
   const { isPinned } = req.body;
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    channel.adminIds?.includes(currentUser.id) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
   if (!isCircleAdmin) {
     return res.status(403).json({ error: 'Only group administrators can pin messages.' });
   }
@@ -4198,11 +4224,7 @@ app.delete('/api/channels/:id/messages/:msgId', async (req: Request, res: Respon
     return res.status(503).json({ error: 'Could not delete the message. Please try again later.' });
   }
   if (!existingRow) return res.status(404).json({ error: 'Message not found.' });
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    channel.adminIds?.includes(currentUser.id) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
 
   if (existingRow.sender_id !== currentUser.id && !isCircleAdmin) {
     return res.status(403).json({ error: 'You can only delete your own messages or be a group admin.' });
@@ -4241,11 +4263,7 @@ app.post('/api/channels/:id/polls', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'You cannot update another institution’s group.' });
   }
 
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    (channel.adminIds && channel.adminIds.includes(currentUser.id)) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
 
   if (channel.onlyAdminsCanMessage && !isCircleAdmin) {
     return res.status(403).json({ error: 'Only group admins can post polls in this group.' });
@@ -4552,6 +4570,47 @@ app.get('/api/channels/:id/members', async (req: Request, res: Response) => {
   });
 });
 
+app.get('/api/channels/:id/member-candidates', async (req: Request, res: Response) => {
+  const currentUser = getCurrentUser(req);
+  const channel = await loadChannelForRequest(req, res, req.params.id);
+  if (!channel) return;
+  if (!userCanAddChannelMembers(currentUser, channel)) {
+    return res.status(403).json({ error: 'Only faculty or group administrators can add members.' });
+  }
+  const supabase = await getSupabaseClientForRequest(req);
+  if (!supabase) {
+    return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
+  }
+  const { data, error } = await supabase.rpc('mycollege_list_channel_member_candidates', {
+    p_channel_id: channel.id,
+  });
+  if (error || !data) {
+    console.error('Could not load eligible channel members:', error?.code);
+    return res.status(503).json({
+      error: 'Could not load the saved student and faculty directory. Apply the latest Circle roster migration and try again.',
+    });
+  }
+
+  const candidates = (data as Array<{
+    id: string | null;
+    name: string;
+    email: string;
+    role: 'student' | 'faculty';
+    designation: string | null;
+    roll_no: string | null;
+    membership_status: 'not_added' | 'active' | 'pending';
+  }>).map((candidate) => ({
+    id: candidate.id,
+    name: candidate.name,
+    email: candidate.email,
+    role: candidate.role,
+    designation: candidate.designation || undefined,
+    rollNo: candidate.roll_no || undefined,
+    membershipStatus: candidate.membership_status,
+  }));
+  res.json({ candidates });
+});
+
 // Make someone Group Admin (WhatsApp Group Admin feature)
 app.post('/api/channels/:id/admins', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
@@ -4561,11 +4620,7 @@ app.post('/api/channels/:id/admins', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'You cannot update another institution’s group.' });
   }
 
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    (channel.adminIds && channel.adminIds.includes(currentUser.id)) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
 
   if (!isCircleAdmin) {
     return res.status(403).json({ error: 'Only group admins can appoint new admins.' });
@@ -4652,11 +4707,7 @@ app.delete('/api/channels/:id/admins/:userId', async (req: Request, res: Respons
     return res.status(403).json({ error: 'You cannot update another institution’s group.' });
   }
 
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    (channel.adminIds && channel.adminIds.includes(currentUser.id)) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
 
   if (!isCircleAdmin) {
     return res.status(403).json({ error: 'Only group admins can dismiss other admins.' });
@@ -4716,11 +4767,7 @@ app.put('/api/channels/:id/settings', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'You cannot update another institution’s group.' });
   }
 
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    (channel.adminIds && channel.adminIds.includes(currentUser.id)) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
 
   if (!isCircleAdmin) {
     return res.status(403).json({ error: 'Only group admins can edit this group settings.' });
@@ -4795,11 +4842,7 @@ app.post('/api/channels/:id/reset-invite', async (req: Request, res: Response) =
     return res.status(403).json({ error: 'You cannot update another institution’s group.' });
   }
 
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    (channel.adminIds && channel.adminIds.includes(currentUser.id)) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
 
   if (!isCircleAdmin) {
     return res.status(403).json({ error: 'Only group admins can reset the invite link.' });
@@ -4835,34 +4878,67 @@ app.post('/api/channels/:id/members', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'You cannot update another institution’s group.' });
   }
 
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    (channel.adminIds && channel.adminIds.includes(currentUser.id)) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty';
-
-  if (!isCircleAdmin) {
-    return res.status(403).json({ error: 'Only group admins can add new participants in this circle.' });
+  if (!userCanAddChannelMembers(currentUser, channel)) {
+    return res.status(403).json({ error: 'Only faculty or group administrators can add members.' });
   }
 
-  const { userId } = req.body;
-  if (typeof userId !== 'string') return res.status(400).json({ error: 'userId is required.' });
+  const { userId, email } = req.body;
+  if (typeof email !== 'string' && typeof userId !== 'string') {
+    return res.status(400).json({ error: 'A member email or userId is required.' });
+  }
   const supabase = await getSupabaseClientForRequest(req);
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
+  let memberEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (!memberEmail && typeof userId === 'string') {
+    const { data: target, error: targetError } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('id', userId)
+      .eq('institution_id', currentUser.institutionId)
+      .maybeSingle();
+    if (targetError) {
+      console.error('Could not load selected group member:', targetError.code);
+      return res.status(503).json({ error: 'Could not load the selected user. Please try again later.' });
+    }
+    if (!target) return res.status(404).json({ error: 'Student or faculty member not found.' });
+    memberEmail = target.email;
+  }
+  const { data: addResult, error: addError } = await supabase.rpc('mycollege_add_channel_member', {
+    p_channel_id: channel.id,
+    p_email: memberEmail,
+  });
+  if (addError || !addResult) {
+    console.error('Could not add channel member in Supabase:', addError?.code);
+    if (addError?.code === '42501') {
+      return res.status(403).json({ error: 'You do not have permission to add this person.' });
+    }
+    if (addError?.code === 'P0002') {
+      return res.status(404).json({ error: 'This person is not in the authorized student or faculty directory.' });
+    }
+    return res.status(503).json({ error: 'Could not add this member. Apply the latest Circle roster migration and try again.' });
+  }
+
+  const result = addResult as { status: 'active' | 'pending'; profile_id?: string };
+  if (result.status === 'pending') {
+    return res.json({ success: true, pending: true, memberCount: channel.memberCount });
+  }
+  if (!result.profile_id) {
+    console.error('Adding a channel member returned an active status without a profile ID.');
+    return res.status(503).json({ error: 'Could not confirm the new group member. Please try again.' });
+  }
   const { data: targetProfile, error: profileError } = await supabase
     .from('profiles')
     .select('id, institution_id, full_name, email, role, department_id, is_verified, is_profile_completed')
-    .eq('id', userId)
+    .eq('id', result.profile_id)
     .eq('institution_id', currentUser.institutionId)
     .maybeSingle();
-  if (profileError) {
-    console.error('Could not load group member profile:', profileError.code);
-    return res.status(503).json({ error: 'Could not load the selected user. Please try again later.' });
+  if (profileError || !targetProfile) {
+    console.error('Could not load added group member profile:', profileError?.code);
+    return res.status(503).json({ error: 'The member was added, but their profile could not be loaded.' });
   }
-  if (!targetProfile) return res.status(404).json({ error: 'Student/user not found.' });
-  const targetUser: User = users.find((user) => user.id === userId) || {
+  const targetUser: User = users.find((user) => user.id === targetProfile.id) || {
     id: targetProfile.id,
     institutionId: targetProfile.institution_id,
     name: targetProfile.full_name || targetProfile.email,
@@ -4874,33 +4950,6 @@ app.post('/api/channels/:id/members', async (req: Request, res: Response) => {
     isVerified: targetProfile.is_verified,
     isProfileCompleted: targetProfile.is_profile_completed,
   };
-  const { data: existingMembership, error: existingMembershipError } = await supabase
-    .from('channel_members')
-    .select('role')
-    .eq('channel_id', channel.id)
-    .eq('profile_id', userId)
-    .maybeSingle();
-  if (existingMembershipError) {
-    console.error('Could not check channel membership:', existingMembershipError.code);
-    return res.status(503).json({ error: 'Could not update group membership. Please try again later.' });
-  }
-  const membershipResult = existingMembership
-    ? await supabase
-        .from('channel_members')
-        .update({ status: 'active' })
-        .eq('channel_id', channel.id)
-        .eq('profile_id', userId)
-    : await supabase.from('channel_members').insert({
-        channel_id: channel.id,
-        profile_id: userId,
-        role: 'member',
-        status: 'active',
-      });
-  if (membershipResult.error) {
-    console.error('Could not add channel member in Supabase:', membershipResult.error.code);
-    return res.status(503).json({ error: 'Could not add this member. Please try again later.' });
-  }
-
   channel.memberIds ||= [];
   if (!channel.memberIds.includes(targetUser.id)) {
     channel.memberIds.push(targetUser.id);
@@ -4938,7 +4987,7 @@ app.post('/api/channels/:id/members', async (req: Request, res: Response) => {
     message: sysMsg,
   });
 
-  res.json({ success: true, member: targetUser, memberCount: channel.memberCount });
+  res.json({ success: true, member: targetUser, memberCount: channel.memberCount, pending: false });
 });
 
 app.delete('/api/channels/:id/members/:userId', async (req: Request, res: Response) => {
@@ -4949,10 +4998,7 @@ app.delete('/api/channels/:id/members/:userId', async (req: Request, res: Respon
     return res.status(403).json({ error: 'You cannot update another institution’s group.' });
   }
 
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    (channel.adminIds && channel.adminIds.includes(currentUser.id)) ||
-    currentUser.role === 'admin';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
 
   const isRemovingSelf = req.params.userId === currentUser.id;
 
@@ -5134,12 +5180,7 @@ app.post('/api/channels/:id/announcements', async (req: Request, res: Response) 
     return res.status(403).json({ error: 'You cannot post in another institution’s group.' });
   }
 
-  const isCircleAdmin =
-    channel.creatorId === currentUser.id ||
-    (channel.adminIds && channel.adminIds.includes(currentUser.id)) ||
-    currentUser.role === 'admin' ||
-    currentUser.role === 'faculty' ||
-    currentUser.role === 'coordinator';
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
 
   if (!isCircleAdmin) {
     return res.status(403).json({
@@ -5559,12 +5600,7 @@ function broadcastToInstitution(institutionId: string, payload: {
       continue;
     }
 
-    const hasChannelAccess =
-      !channel.divisionId ||
-      user.role === 'admin' ||
-      user.role === 'faculty' ||
-      Boolean(channel.memberIds?.includes(user.id)) ||
-      Boolean(user.divisionIds?.includes(channel.divisionId));
+    const hasChannelAccess = userCanAccessChannel(user, channel);
 
     if (hasChannelAccess && socket.readyState === WebSocket.OPEN) {
       socket.send(msg);
