@@ -401,7 +401,23 @@ const sessionCookieName = 'mycollege_session';
 const sessionMaxAgeSeconds = 400 * 24 * 60 * 60;
 const sessionRenewalThresholdMs = 30 * 24 * 60 * 60 * 1000;
 
-function getSessionTokenFromRequest(req: { headers: { cookie?: string } }): string | null {
+function getSessionTokenFromRequest(req: { headers: { cookie?: string; authorization?: string; 'x-session-token'?: string } }): string | null {
+  // 1. Direct header: x-session-token (mobile-resilient)
+  const directToken = req.headers['x-session-token'];
+  if (typeof directToken === 'string' && /^[A-Za-z0-9_-]{43}$/.test(directToken.trim())) {
+    return directToken.trim();
+  }
+
+  // 2. Authorization header: Bearer <token>
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+    const bearer = authHeader.slice(7).trim();
+    if (/^[A-Za-z0-9_-]{43}$/.test(bearer)) {
+      return bearer;
+    }
+  }
+
+  // 3. Cookie fallback
   const sessionCookie = req.headers.cookie
     ?.split(';')
     .map((cookie) => cookie.trim())
@@ -418,7 +434,7 @@ function setSessionCookie(res: Response, token: string, maxAgeSeconds: number): 
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   res.setHeader(
     'Set-Cookie',
-    `${sessionCookieName}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}${secure}`
+    `${sessionCookieName}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}${secure}`
   );
 }
 
@@ -1246,6 +1262,7 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
 
   res.json({
     user,
+    token,
     isFirstTime,
     divisions: matchingDivisions,
   });
@@ -1447,14 +1464,14 @@ app.get('/api/auth/session', async (req: Request, res: Response) => {
   if (!user) {
     return res.json({ authenticated: false, user: null });
   }
-  const supabase = await getSupabaseClientForRequest(req);
-  if (!supabase) {
-    return res.status(503).json({
-      error: 'Your sign-in is still active, but could not be refreshed right now. Please try again.',
-    });
+  const token = getSessionTokenFromRequest(req);
+  try {
+    await getSupabaseClientForRequest(req);
+  } catch (refreshErr) {
+    console.warn('Could not refresh Supabase client on session check, continuing with user session:', refreshErr);
   }
   const matchingDivisions = DIVISIONS.filter((d) => user.divisionIds?.includes(d.id));
-  res.json({ authenticated: true, user, divisions: matchingDivisions });
+  res.json({ authenticated: true, user, token: token || undefined, divisions: matchingDivisions });
 });
 
 // 7. Get College Divisions

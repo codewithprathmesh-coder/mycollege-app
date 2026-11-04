@@ -17,15 +17,25 @@ import type {
   UserRole,
 } from '../types';
 
-let currentUserId = '';
+let currentUserId = localStorage.getItem('mycollege_active_user_id') || '';
 
 export function getActiveUserId(): string {
-  return currentUserId;
+  return currentUserId || localStorage.getItem('mycollege_active_user_id') || '';
 }
 
 export function setActiveUserId(userId: string) {
   currentUserId = userId;
   localStorage.setItem('mycollege_active_user_id', userId);
+}
+
+export function setSessionToken(token: string) {
+  if (token) {
+    localStorage.setItem('mycollege_session_token', token);
+  }
+}
+
+export function getSessionToken(): string | null {
+  return localStorage.getItem('mycollege_session_token');
 }
 
 export function clearSession() {
@@ -36,10 +46,19 @@ export function clearSession() {
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
-  headers.set('Content-Type', 'application/json');
+  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const token = getSessionToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+    headers.set('x-session-token', token);
+  }
+
   const res = await fetch(endpoint, {
     ...options,
-    credentials: 'same-origin',
+    credentials: 'include',
     headers,
   });
 
@@ -485,17 +504,22 @@ export const api = {
     code: string
   ): Promise<{
     user: User;
+    token?: string;
     isFirstTime: boolean;
     divisions: Division[];
   }> {
     const res = await request<{
       user: User;
+      token?: string;
       isFirstTime: boolean;
       divisions: Division[];
     }>('/api/auth/verify-otp', {
       method: 'POST',
       body: JSON.stringify({ email, code }),
     });
+    if (res.token) {
+      setSessionToken(res.token);
+    }
     setActiveUserId(res.user.id);
     return res;
   },
@@ -533,9 +557,10 @@ export const api = {
     return { success: true };
   },
 
-  async getAuthSession(): Promise<{ authenticated: boolean; user: User | null; divisions?: Division[] }> {
-    const session = await request<{ authenticated: boolean; user: User | null; divisions?: Division[] }>('/api/auth/session');
+  async getAuthSession(): Promise<{ authenticated: boolean; user: User | null; token?: string; divisions?: Division[] }> {
+    const session = await request<{ authenticated: boolean; user: User | null; token?: string; divisions?: Division[] }>('/api/auth/session');
     if (session.user) setActiveUserId(session.user.id);
+    if (session.token) setSessionToken(session.token);
     return session;
   },
 

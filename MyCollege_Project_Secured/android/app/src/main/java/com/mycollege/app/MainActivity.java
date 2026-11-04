@@ -73,6 +73,21 @@ public class MainActivity extends BridgeActivity {
             settings.setSupportZoom(false);
             settings.setBuiltInZoomControls(false);
             settings.setDisplayZoomControls(false);
+            settings.setDomStorageEnabled(true);
+            settings.setDatabaseEnabled(true);
+
+            android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);
+            cookieManager.setAcceptThirdPartyCookies(webView, true);
+        }
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        try {
+            android.webkit.CookieManager.getInstance().flush();
+        } catch (Exception ignored) {
         }
     }
 }

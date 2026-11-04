@@ -39,9 +39,9 @@ let cachedConfig: SessionStoreConfig | null | undefined;
 function getSessionStoreConfig(): SessionStoreConfig | null {
   if (cachedConfig !== undefined) return cachedConfig;
 
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  const encodedEncryptionKey = process.env.SESSION_ENCRYPTION_KEY?.trim();
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://jzfldgycbmhhxfywrghg.supabase.co';
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6ZmxkZ3ljYm1oaHhmeXdyZ2hnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjY3NDgxMSwiZXhwIjoyMTA4MjUwODExfQ.kvkKyNGgoIpTWVRzTIUULWxx8lhC3tFtqwN74Q58egQ';
+  const encodedEncryptionKey = process.env.SESSION_ENCRYPTION_KEY?.trim() || 'JqCGQoCDn98FwFBqnX+ocCs1qy+MeAqgnpJkhTA7X58=';
   if (!url || !serviceRoleKey || !encodedEncryptionKey) {
     console.info('Persistent sessions: keys not configured on server (SUPABASE_SERVICE_ROLE_KEY or SESSION_ENCRYPTION_KEY missing). Falling back to in-memory active sessions.');
     cachedConfig = null;
