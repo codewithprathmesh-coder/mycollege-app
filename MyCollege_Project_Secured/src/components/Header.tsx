@@ -90,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header
       className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 w-full max-w-full overflow-x-clip"
-      style={{ paddingTop: 'max(8px, env(safe-area-inset-top, 0px))' }}
+      style={{ paddingTop: 'max(env(safe-area-inset-top, 0px), 10px)' }}
     >
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 sm:h-16 gap-2 sm:gap-4">

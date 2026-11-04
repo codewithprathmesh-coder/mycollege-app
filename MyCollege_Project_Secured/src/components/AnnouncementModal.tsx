@@ -164,18 +164,34 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
             <h2 className="text-xl sm:text-2xl font-bold text-slate-900 leading-tight">
               {announcement.title}
             </h2>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-              <span>Published by {announcement.authorName} ({announcement.authorRole})</span>
-              <span aria-hidden="true">·</span>
-              <span>{formatDate(announcement.publicationDate)}</span>
-              {announcement.targetAudience.type !== 'all' && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="text-slate-700 font-medium">
-                    Audience: {announcement.targetAudience.type} targeted
+            
+            {/* Uploaded By Faculty Card */}
+            <div className="mt-3 flex items-center gap-2.5 p-3 rounded-2xl bg-slate-50 border border-slate-200">
+              <div className="w-9 h-9 rounded-xl bg-blue-600 text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-2xs">
+                {(announcement.authorName || 'F')[0].toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1 text-xs">
+                <div className="text-slate-900 font-bold">
+                  Uploaded by {announcement.authorName || 'Faculty Member'}
+                </div>
+                <div className="text-slate-500 text-[11px] flex items-center flex-wrap gap-1.5 capitalize">
+                  <span className="font-medium text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">
+                    {announcement.authorRole || 'Faculty'}
                   </span>
-                </>
-              )}
+                  <span>·</span>
+                  <span>{announcement.publishingDepartment}</span>
+                  <span>·</span>
+                  <span>{formatDate(announcement.publicationDate)}</span>
+                  {announcement.targetAudience.type !== 'all' && (
+                    <>
+                      <span>·</span>
+                      <span className="text-slate-700 font-medium">
+                        Audience: {announcement.targetAudience.type} targeted
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 

@@ -1020,7 +1020,7 @@ const toggleTheme = () => {
       </div>
 
       {/* Main View Area */}
-      <main className="flex-1 min-w-0 w-full max-w-full overflow-x-hidden">
+      <main className="flex-1 min-w-0 w-full max-w-full overflow-x-hidden pb-24 sm:pb-6">
         {activeTab === 'home' && (
           <HomeView
             currentUser={currentUser}

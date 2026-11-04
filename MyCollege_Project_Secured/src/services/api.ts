@@ -6,6 +6,7 @@ import type {
   ApprovedStudent,
   AuditLog,
   ChannelMemberCandidate,
+  ChatMessage,
   Department,
   Division,
   EventRegistration,
@@ -380,6 +381,7 @@ export const api = {
     member?: any;
     memberCount: number;
     pending?: boolean;
+    message?: ChatMessage;
   }> {
     return request(`/api/channels/${channelId}/members`, {
       method: 'POST',

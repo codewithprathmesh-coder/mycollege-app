@@ -12,6 +12,7 @@ import {
   Eye,
   AlertCircle,
   ShieldCheck,
+  User as UserIcon,
 } from 'lucide-react';
 import type { Announcement } from '../types';
 
@@ -155,9 +156,24 @@ export const AnnouncementCard: React.FC<AnnouncementCardProps> = ({
         </div>
 
         {/* Title */}
-        <h3 className="text-base font-semibold text-slate-900 group-hover:text-blue-700 transition-colors leading-snug mb-2">
+        <h3 className="text-base font-semibold text-slate-900 group-hover:text-blue-700 transition-colors leading-snug mb-1.5">
           {announcement.title}
         </h3>
+
+        {/* Uploaded By Faculty Attribution */}
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-2.5">
+          <div className="w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center justify-center shrink-0">
+            {(announcement.authorName || 'F')[0].toUpperCase()}
+          </div>
+          <span className="text-slate-600 font-medium">
+            Uploaded by <strong className="text-slate-800 font-semibold">{announcement.authorName || 'Faculty Member'}</strong>
+          </span>
+          {announcement.authorRole && (
+            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-medium capitalize">
+              {announcement.authorRole}
+            </span>
+          )}
+        </div>
 
         {/* Description Snippet */}
         <p className="text-xs sm:text-sm text-slate-600 line-clamp-2 leading-relaxed mb-3">

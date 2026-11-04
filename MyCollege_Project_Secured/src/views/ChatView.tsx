@@ -513,7 +513,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // 1. ADD MEMBERS HANDLERS (Completely Fixed & Verified)
   const handleOpenAddMemberModal = () => {
-    if (!selectedChannel || !canAddMembers) return;
+    if (!selectedChannel || !canAddMembers) {
+      showToast('Only group administrators or faculty can add members.', 'error');
+      return;
+    }
     setShowAddMemberModal(true);
     void loadStudentsDirectory(selectedChannel.id);
   };
@@ -523,13 +526,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   const handleAddMemberDirect = async (candidate: ChannelMemberCandidate) => {
-    if (!selectedChannel) return;
+    if (!selectedChannel || !canAddMembers) return;
     try {
       const response = await api.addMemberToChannel(selectedChannel.id, candidate.email);
       if (response.member) {
         setMembers((previous) => previous.some((member) => member.id === response.member.id)
           ? previous
           : [...previous, response.member as User]);
+      }
+      if (response.message) {
+        setMessages((previous) => previous.some((m) => m.id === response.message!.id)
+          ? previous
+          : [...previous, response.message!]);
       }
       setSelectedChannel((previous) => (
         previous ? { ...previous, memberCount: response.memberCount } : null
@@ -1287,14 +1295,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </div>
                     ) : (
                       displayedMessages.map((msg) => {
-                        const isSelf = msg.senderId === currentUser.id;
-                        const isSystem = msg.senderId === 'system';
+                        const isSystem =
+                          msg.senderId === 'system' ||
+                          msg.senderName === 'Campus Bot' ||
+                          msg.senderName === 'Group System' ||
+                          msg.senderName === 'Group Security' ||
+                          (msg.senderRole as string) === 'system' ||
+                          (msg.content && (
+                            msg.content.includes(' was added ') ||
+                            msg.content.includes(' added ') ||
+                            msg.content.includes(' joined #') ||
+                            msg.content.includes(' left the group')
+                          ));
+                        const isSelf = !isSystem && msg.senderId === currentUser.id;
                         const isFaculty = msg.senderRole === 'faculty' || msg.senderRole === 'admin';
 
                         if (isSystem) {
                           return (
-                            <div key={msg.id} className="flex justify-center my-2">
-                              <span className="text-[11px] text-slate-500 bg-slate-200/80 px-3 py-1 rounded-full text-center">
+                            <div key={msg.id} className="flex justify-center my-3">
+                              <span className="text-[11px] font-medium text-slate-700 bg-slate-200/90 backdrop-blur-xs px-3.5 py-1.5 rounded-full text-center shadow-2xs border border-slate-300/40 max-w-md">
                                 {msg.content}
                               </span>
                             </div>
@@ -1747,7 +1766,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                     <span className="text-[10px] text-slate-400 font-mono">Vote in group</span>
                                   </button>
 
-                                  {/* 4. Official Notice Broadcast (Faculty/Admin) */}
+                                  {/* 4. Official Notice Broadcast (Faculty/Admin) or Invite (if authorized) */}
                                   {isCircleAdmin ? (
                                     <button
                                       type="button"
@@ -1763,7 +1782,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                       <span className="text-xs font-bold text-slate-800">Notice</span>
                                       <span className="text-[10px] text-slate-400 font-mono">Official Circular</span>
                                     </button>
-                                  ) : (
+                                  ) : canAddMembers ? (
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -1776,9 +1795,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                         <UserPlus className="w-4 h-4" />
                                       </div>
                                       <span className="text-xs font-bold text-slate-800">Invite</span>
-                                      <span className="text-[10px] text-slate-400 font-mono">Add students or faculty</span>
+                                      <span className="text-[10px] text-slate-400 font-mono">Add members</span>
                                     </button>
-                                  )}
+                                  ) : null}
                                 </div>
 
                                 {/* Academic Notes Presets */}
@@ -2166,9 +2185,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     value={studentSearchQuery}
                     onChange={(e) => setStudentSearchQuery(e.target.value)}
                     placeholder="Search by name, roll number, or email..."
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs text-slate-900 outline-none"
+                    className="w-full pl-9 pr-9 py-2 bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-xl text-xs text-slate-900 outline-none"
                     autoFocus
                   />
+                  {studentSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setStudentSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
                 <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-2xl border border-slate-200">
@@ -2182,70 +2210,89 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         onClick={() => {
                           if (selectedChannel) void loadStudentsDirectory(selectedChannel.id);
                         }}
-                        className="text-xs font-semibold text-blue-700 hover:text-blue-800"
+                        className="text-xs font-semibold text-blue-700 hover:text-blue-800 cursor-pointer"
                       >
                         Try again
                       </button>
                     </div>
                   ) : allStudentsDirectory.length === 0 ? (
                     <div className="p-6 text-center text-xs text-slate-400">No students or faculty found.</div>
-                  ) : (
-                    allStudentsDirectory
-                      .filter((s) => {
-                        if (!studentSearchQuery.trim()) return true;
-                        const q = studentSearchQuery.toLowerCase();
-                        return (
-                          s.name.toLowerCase().includes(q) ||
-                          s.email.toLowerCase().includes(q) ||
-                          (s.rollNo && s.rollNo.toLowerCase().includes(q))
-                        );
-                      })
-                      .map((student) => {
-                        const isAlreadyMember = student.membershipStatus === 'active' ||
-                          members.some((member) => member.email.toLowerCase() === student.email.toLowerCase());
-                        const isPending = student.membershipStatus === 'pending';
-                        const isAddedJustNow = copiedId === `added-${student.email}`;
+                  ) : (() => {
+                    const q = studentSearchQuery.trim().toLowerCase();
+                    const filtered = allStudentsDirectory.filter((s) => {
+                      if (!q) return true;
+                      const name = (s.name || '').toLowerCase();
+                      const email = (s.email || '').toLowerCase();
+                      const rollNo = (s.rollNo || '').toLowerCase();
+                      const designation = (s.designation || '').toLowerCase();
+                      const role = (s.role || '').toLowerCase();
+                      return name.includes(q) || email.includes(q) || rollNo.includes(q) || designation.includes(q) || role.includes(q);
+                    });
 
-                        return (
-                          <div
-                            key={student.email}
-                            className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
+                    if (filtered.length === 0) {
+                      return (
+                        <div className="p-6 text-center text-xs text-slate-500 space-y-2">
+                          <p>No student or faculty found matching "{studentSearchQuery}".</p>
+                          <button
+                            type="button"
+                            onClick={() => setStudentSearchQuery('')}
+                            className="text-blue-600 hover:text-blue-700 font-semibold text-xs underline cursor-pointer"
                           >
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0">
-                                {student.name.slice(0, 2).toUpperCase()}
+                            Clear search filter
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return filtered.map((student) => {
+                      const isAlreadyMember =
+                        student.membershipStatus === 'active' ||
+                        members.some((member) => (member.email || '').toLowerCase() === (student.email || '').toLowerCase());
+                      const isPending = student.membershipStatus === 'pending';
+                      const isAddedJustNow = copiedId === `added-${student.email}`;
+                      const displayName = student.name || student.email || 'User';
+                      const initials = displayName.slice(0, 2).toUpperCase();
+
+                      return (
+                        <div
+                          key={student.email || student.id}
+                          className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center shrink-0">
+                              {initials}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-bold text-xs text-slate-900 truncate">
+                                {displayName}
                               </div>
-                              <div className="min-w-0">
-                                <div className="font-bold text-xs text-slate-900 truncate">
-                                  {student.name}
-                                </div>
-                                <div className="text-[10px] text-slate-500 font-mono truncate">
-                                  {student.role === 'faculty'
-                                    ? student.designation || 'Faculty'
-                                    : student.rollNo || 'Student'} · {student.email}
-                                </div>
+                              <div className="text-[10px] text-slate-500 font-mono truncate">
+                                {student.role === 'faculty'
+                                  ? student.designation || 'Faculty'
+                                  : student.rollNo || 'Student'} · {student.email}
                               </div>
                             </div>
-
-                            {isAlreadyMember || isPending || isAddedJustNow ? (
-                              <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
-                                <Check className="w-3 h-3 text-emerald-600" />
-                                <span>{isPending ? 'Invitation pending' : isAddedJustNow ? 'Added!' : 'Member'}</span>
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleAddMemberDirect(student)}
-                                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-lg flex items-center gap-1 transition-colors shrink-0 shadow-2xs cursor-pointer"
-                              >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>Add</span>
-                              </button>
-                            )}
                           </div>
-                        );
-                      })
-                  )}
+
+                          {isAlreadyMember || isPending || isAddedJustNow ? (
+                            <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded flex items-center gap-1 shrink-0">
+                              <Check className="w-3 h-3 text-emerald-600" />
+                              <span>{isPending ? 'Invitation pending' : isAddedJustNow ? 'Added!' : 'Member'}</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleAddMemberDirect(student)}
+                              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-lg flex items-center gap-1 transition-colors shrink-0 shadow-2xs cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>Add</span>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             )}

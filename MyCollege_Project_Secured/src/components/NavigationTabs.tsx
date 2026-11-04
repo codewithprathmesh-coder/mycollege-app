@@ -33,7 +33,7 @@ export const NavigationTabs: React.FC<NavigationTabsProps> = ({
   const isAdmin = userRole === 'admin';
 
   return (
-    <div className="bg-white border-b border-slate-200">
+    <div className="hidden sm:block bg-white border-b border-slate-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <nav className="flex items-center gap-1 sm:gap-2 -mb-px overflow-x-auto no-scrollbar py-2">
           <button
@@ -168,9 +168,9 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 sm:hidden shadow-lg"
+      className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 sm:hidden shadow-lg select-none"
       style={{
-        paddingBottom: 'max(14px, env(safe-area-inset-bottom, 0px))',
+        paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 14px)',
       }}
     >
       <div className={`grid ${isFaculty ? 'grid-cols-4' : 'grid-cols-5'} h-15 items-center`}>

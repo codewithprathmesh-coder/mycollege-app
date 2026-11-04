@@ -4959,8 +4959,8 @@ app.post('/api/channels/:id/members', async (req: Request, res: Response) => {
     supabase,
     channel,
     currentUser,
-    'Campus Bot',
-    `${targetUser.name} (${targetUser.role}) was added to #${channel.name} by ${currentUser.name}.`
+    'Group System',
+    `${currentUser.name} added ${targetUser.name} to the group.`
   );
   if (!sysMsg) {
     return res.status(503).json({ error: 'The member was added, but the group notice could not be saved.' });
@@ -4987,7 +4987,7 @@ app.post('/api/channels/:id/members', async (req: Request, res: Response) => {
     message: sysMsg,
   });
 
-  res.json({ success: true, member: targetUser, memberCount: channel.memberCount, pending: false });
+  res.json({ success: true, member: targetUser, memberCount: channel.memberCount, pending: false, message: sysMsg });
 });
 
 app.delete('/api/channels/:id/members/:userId', async (req: Request, res: Response) => {
