@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     name: Build Android APK
@@ -37,16 +40,39 @@ jobs:
         working-directory: ./MyCollege_Project_Secured
         run: npx cap sync android
 
-      - name: Compile Android Debug APK
+      - name: Compile Android APK
         working-directory: ./MyCollege_Project_Secured/android
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+          mkdir -p ../../release-apk
+          cp app/build/outputs/apk/debug/app-debug.apk ../../release-apk/MyCollege.apk
 
       - name: Upload APK to GitHub Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: MyCollege-App-APK
-          path: ./MyCollege_Project_Secured/android/app/build/outputs/apk/debug/app-debug.apk
+          path: ./release-apk/MyCollege.apk
           if-no-files-found: error
+
+      - name: Publish Direct APK Download Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: latest
+          name: "MyCollege Mobile App (Direct Install)"
+          body: |
+            ### MyCollege Android App Direct Download
+            Directly installable on any Android device (Android 7.0 to Android 15+).
+            
+            **Direct Download**: Tap **[MyCollege.apk](https://github.com/codewithprathmesh-coder/mycollege-app/releases/download/latest/MyCollege.apk)** to download directly to your phone.
+            
+            **Installation Instructions for Staff & Students:**
+            1. Tap `MyCollege.apk` to download directly to your device.
+            2. When download finishes, tap the notification or open your phone's **Files / Downloads** app.
+            3. Tap **MyCollege.apk** and click **Install**.
+            *(If your phone shows "For security, your phone is not allowed to install unknown apps", tap Settings and switch "Allow from this source" to ON).*
+          files: ./release-apk/MyCollege.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

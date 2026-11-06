@@ -801,6 +801,9 @@ app.use('/api', async (req: Request, res: Response, next) => {
     '/health',
     '/supabase-health',
     '/supabase-auth-health',
+    '/download/apk',
+    '/download/app',
+    '/api/download/apk',
   ]);
   const pathsWithoutSessionRestore = new Set([
     '/auth/request-otp',
@@ -812,6 +815,9 @@ app.use('/api', async (req: Request, res: Response, next) => {
     '/health',
     '/supabase-health',
     '/supabase-auth-health',
+    '/download/apk',
+    '/download/app',
+    '/api/download/apk',
   ]);
   const token = getSessionTokenFromRequest(req);
   if (token && !pathsWithoutSessionRestore.has(req.path)) {
@@ -876,6 +882,11 @@ app.use('/api', async (req: Request, res: Response, next) => {
   next();
 });
 
+
+// Direct APK Download Redirect
+app.get(['/download/apk', '/download/app', '/api/download/apk'], (_req: Request, res: Response) => {
+  res.redirect('https://github.com/codewithprathmesh-coder/mycollege-app/releases/download/latest/MyCollege.apk');
+});
 
 app.get('/api/health', (_req, res) => {
   res.json({

@@ -43,3 +43,4 @@ create policy channel_members_insert_authorized
         and c.creator_id = (select auth.uid())
     )
   );
+
