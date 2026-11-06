@@ -93,6 +93,7 @@ nishit.bangari@somaiya.edu
 omkar.rg@somaiya.edu
 palak.nj@somaiya.edu
 pankaj@somaiya.edu
+pjayshree062@gmail.com
 prachi.dhamecha@somaiya.edu
 pradnya28@somaiya.edu
 prashant.sb@somaiya.edu
@@ -277,7 +278,8 @@ values
   ('kpashte@somaiya.edu', 'Ms. Kavita Pashte', 'Tech.Asst.'),
   ('sdhale@somaiya.edu', 'Mr. Sachin Dhale', 'Lab.Asst.'),
   ('bharati@somaiya.edu', 'Ms. Bharati Sansare', 'Lab.Asst.'),
-  ('lokmat874@gmail.com', 'lokmat', 'trial');
+  ('lokmat874@gmail.com', 'lokmat', 'trial'),
+  ('harshwardhanpatil241@gmail.com', 'Harshwardhan Patil', 'trials');
 
 update public.faculty_directory as f
 set institution_id = '00000000-0000-4000-8000-000000000001',

@@ -25,4 +25,5 @@ export const FACULTY_DETAILS: FacultyDetails[] = [
   { name: 'Mr. Sachin Dhale', email: 'sdhale@somaiya.edu', designation: 'Lab.Asst.' },
   { name: 'Ms. Bharati Sansare', email: 'bharati@somaiya.edu', designation: 'Lab.Asst.' },
   { name: 'lokmat', email: 'lokmat874@gmail.com', designation: 'trial' },
+  { name: 'Harshwardhan Patil', email: 'harshwardhanpatil241@gmail.com', designation: 'trials' },
 ];

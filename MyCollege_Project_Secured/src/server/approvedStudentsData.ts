@@ -122,6 +122,7 @@ export const RAW_DIVISION_A_EMAILS: string[] = [
   'omkar.rg@somaiya.edu',
   'palak.nj@somaiya.edu',
   'pankaj@somaiya.edu',
+  'pjayshree062@gmail.com',
   'prachi.dhamecha@somaiya.edu',
   'pradnya28@somaiya.edu',
   'prashant.sb@somaiya.edu',
