@@ -883,9 +883,132 @@ app.use('/api', async (req: Request, res: Response, next) => {
 });
 
 
-// Direct APK Download Redirect
-app.get(['/download/apk', '/download/app', '/api/download/apk'], (_req: Request, res: Response) => {
-  res.redirect('https://github.com/codewithprathmesh-coder/mycollege-app/releases/download/latest/MyCollege.apk');
+// Direct APK Download Portal & Redirect
+app.get(['/download/apk', '/download/app', '/api/download/apk'], (req: Request, res: Response) => {
+  const directUrl = 'https://github.com/codewithprathmesh-coder/mycollege-app/releases/download/v1.0.0/MyCollege.apk';
+  if (req.query.direct === '1') {
+    return res.redirect(directUrl);
+  }
+
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Download MyCollege App</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      margin: 0; padding: 0;
+      background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+      color: #0f172a;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      box-sizing: border-box;
+    }
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 1.5rem;
+      padding: 2rem;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05);
+      text-align: center;
+      box-sizing: border-box;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #1d4ed8;
+      background: #dbeafe;
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      margin-bottom: 1rem;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 0.875rem 1.25rem;
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 0.95rem;
+      text-decoration: none;
+      border-radius: 0.75rem;
+      margin: 1.25rem 0 0.75rem 0;
+      box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+      box-sizing: border-box;
+    }
+    .step {
+      text-align: left;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 0.75rem;
+      padding: 0.75rem 1rem;
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+    }
+    .step-num {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      line-height: 20px;
+      border-radius: 50%;
+      background: #2563eb;
+      color: #fff;
+      text-align: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      margin-right: 0.5rem;
+    }
+    .alert {
+      background: #fffbeb;
+      border: 1px solid #fef3c7;
+      color: #92400e;
+      padding: 0.75rem;
+      border-radius: 0.75rem;
+      font-size: 0.8rem;
+      margin-top: 1rem;
+      text-align: left;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">Official Mobile App</div>
+    <h1 style="font-size: 1.5rem; font-weight: 800; margin: 0 0 0.5rem 0;">MyCollege Android App</h1>
+    <p style="font-size: 0.875rem; color: #64748b; margin: 0 0 1rem 0;">Direct APK installer for K. J. Somaiya faculty, staff, and students.</p>
+    
+    <a href="${directUrl}" class="btn" id="dlBtn">
+      ⬇️ Download MyCollege.apk (Direct)
+    </a>
+
+    <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.5rem;">
+      Compatible with all Android devices (Android 7.0 to 15+)
+    </div>
+
+    <div style="margin-top: 1.25rem;">
+      <div class="step"><span class="step-num">1</span> Tap <b>Download MyCollege.apk</b> above.</div>
+      <div class="step"><span class="step-num">2</span> Open your phone's <b>Downloads / Files</b> app and tap <b>MyCollege.apk</b>.</div>
+      <div class="step"><span class="step-num">3</span> Tap <b>Install</b> <i>(If asked, toggle "Allow from this source" to ON)</i>.</div>
+    </div>
+
+    <div class="alert">
+      💡 <b>Troubleshooting:</b> If your phone says <i>"You don't have proper application to install this application"</i>, it means a <code>.zip</code> file was clicked instead of the <code>.apk</code>. Tap the blue button above to get the direct <code>.apk</code> file.
+    </div>
+  </div>
+</body>
+</html>`);
 });
 
 app.get('/api/health', (_req, res) => {

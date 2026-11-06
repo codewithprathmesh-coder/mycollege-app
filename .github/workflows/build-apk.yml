@@ -60,16 +60,15 @@ jobs:
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main'
         with:
-          tag_name: latest
+          tag_name: v1.0.0
           name: "MyCollege Mobile App (Direct Install)"
+          make_latest: true
           body: |
             ### MyCollege Android App Direct Download
             Directly installable on any Android device (Android 7.0 to Android 15+).
             
-            **Direct Download**: Tap **[MyCollege.apk](https://github.com/codewithprathmesh-coder/mycollege-app/releases/download/latest/MyCollege.apk)** to download directly to your phone.
-            
             **Installation Instructions for Staff & Students:**
-            1. Tap `MyCollege.apk` to download directly to your device.
+            1. Tap `MyCollege.apk` below to download directly to your device.
             2. When download finishes, tap the notification or open your phone's **Files / Downloads** app.
             3. Tap **MyCollege.apk** and click **Install**.
             *(If your phone shows "For security, your phone is not allowed to install unknown apps", tap Settings and switch "Allow from this source" to ON).*
