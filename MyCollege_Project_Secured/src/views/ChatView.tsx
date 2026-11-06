@@ -994,16 +994,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </span>
             </div>
 
-            {(currentUser.role === 'faculty' || currentUser.role === 'admin' || currentUser.role === 'coordinator') && (
-              <button
-                type="button"
-                onClick={() => setShowCreateGroupModal(true)}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Create Group
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setShowCreateGroupModal(true)}
+              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Create Group
+            </button>
 
             {/* Search channels input */}
             <div className="relative">
@@ -1053,9 +1051,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {/* Channels List */}
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
             {filteredChannels.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400 space-y-1">
+              <div className="p-8 text-center text-xs text-slate-400 space-y-2.5">
                 <Users className="w-6 h-6 mx-auto opacity-30" />
                 <p>No groups found matching filter.</p>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateGroupModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold rounded-lg text-xs transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Create a Group
+                </button>
               </div>
             ) : (
               filteredChannels.map((chan) => {
@@ -2796,10 +2802,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   onChange={(event) => setNewGroupType(event.target.value as ChannelType)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
                 >
-                  <option value="class">Class</option>
-                  <option value="club">Club</option>
-                  <option value="interest">Interest</option>
-                  <option value="project">Project</option>
+                  {(currentUser.role === 'faculty' || currentUser.role === 'admin' || currentUser.role === 'coordinator') && (
+                    <option value="class">Official Class Channel</option>
+                  )}
+                  <option value="project">Project / Study Group</option>
+                  <option value="club">Club / Committee</option>
+                  <option value="interest">Interest / Topic</option>
                 </select>
               </div>
               <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">

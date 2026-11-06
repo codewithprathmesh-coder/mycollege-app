@@ -499,9 +499,19 @@ export const api = {
     }
   },
 
-  async verifyOtp(
+  async checkAuthMethod(email: string): Promise<{
+    exists: boolean;
+    hasPassword: boolean;
+  }> {
+    return request('/api/auth/check-auth-method', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  async loginWithPassword(
     email: string,
-    code: string
+    password: string
   ): Promise<{
     user: User;
     token?: string;
@@ -513,6 +523,54 @@ export const api = {
       token?: string;
       isFirstTime: boolean;
       divisions: Division[];
+    }>('/api/auth/login-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    if (res.token) {
+      setSessionToken(res.token);
+    }
+    setActiveUserId(res.user.id);
+    return res;
+  },
+
+  async setPassword(payload: {
+    email: string;
+    password: string;
+    token?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    return request('/api/auth/set-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async changePassword(payload: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<{ success: boolean; message: string }> {
+    return request('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async verifyOtp(
+    email: string,
+    code: string
+  ): Promise<{
+    user: User;
+    token?: string;
+    isFirstTime: boolean;
+    divisions: Division[];
+    requiresPasswordSetup?: boolean;
+  }> {
+    const res = await request<{
+      user: User;
+      token?: string;
+      isFirstTime: boolean;
+      divisions: Division[];
+      requiresPasswordSetup?: boolean;
     }>('/api/auth/verify-otp', {
       method: 'POST',
       body: JSON.stringify({ email, code }),

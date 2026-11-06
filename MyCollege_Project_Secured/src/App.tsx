@@ -963,7 +963,7 @@ const toggleTheme = () => {
     <div
       className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-50 text-slate-900 flex flex-col font-sans"
       style={{
-        paddingBottom: 'calc(5.5rem + max(20px, env(safe-area-inset-bottom, 0px)))',
+        paddingBottom: 'calc(6rem + max(28px, env(safe-area-inset-bottom, 0px)))',
       }}
     >
       {/* Primary Header */}

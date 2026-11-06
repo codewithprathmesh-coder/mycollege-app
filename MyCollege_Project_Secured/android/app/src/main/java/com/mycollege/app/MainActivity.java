@@ -41,7 +41,7 @@ public class MainActivity extends BridgeActivity {
     private void setupImmersiveNavigation() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+                WindowCompat.setDecorFitsSystemWindows(getWindow(), true);
                 WindowInsetsControllerCompat controller =
                     new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
                 controller.hide(WindowInsetsCompat.Type.navigationBars());

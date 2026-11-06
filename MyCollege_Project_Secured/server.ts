@@ -26,6 +26,12 @@ import {
   saveSessionRecord,
   type SessionRecord,
 } from './src/server/sessionStore.ts';
+import {
+  checkUserPassword,
+  hasUserPassword,
+  saveUserPassword,
+  verifyPassword,
+} from './src/server/passwordStore.ts';
 import type {
   Announcement,
   AnnouncementCategory,
@@ -787,6 +793,9 @@ app.use('/api', async (req: Request, res: Response, next) => {
   const publicPaths = new Set([
     '/auth/request-otp',
     '/auth/verify-otp',
+    '/auth/check-auth-method',
+    '/auth/login-password',
+    '/auth/set-password',
     '/auth/session',
     '/divisions',
     '/health',
@@ -796,6 +805,9 @@ app.use('/api', async (req: Request, res: Response, next) => {
   const pathsWithoutSessionRestore = new Set([
     '/auth/request-otp',
     '/auth/verify-otp',
+    '/auth/check-auth-method',
+    '/auth/login-password',
+    '/auth/set-password',
     '/divisions',
     '/health',
     '/supabase-health',
@@ -1081,6 +1093,21 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
   }
   otpVerificationTypes.delete(norm);
 
+  return await buildUserSessionAndRespond(authData, norm, req, res, 'otp');
+});
+
+/**
+ * Reusable user session generator & responder
+ * Ensures persistent 400-day cookies and identical profile hydration for both OTP and Password logins
+ */
+async function buildUserSessionAndRespond(
+  authData: { user: any; session: any },
+  norm: string,
+  req: Request,
+  res: Response,
+  authMethod: 'otp' | 'password' = 'otp'
+) {
+  const facultyDetails = facultyDetailsByEmail.get(norm);
   const userSupabase = createAuthenticatedSupabaseClient(authData.session.access_token);
   const { data: isAuthorized, error: authorizationError } = await userSupabase
     .rpc('mycollege_is_authorized_email');
@@ -1269,7 +1296,7 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
     }
   }
 
-  // Generate genuine session token
+  // Generate genuine session token (400-day duration)
   const token = crypto.randomBytes(32).toString('base64url');
   const session: SessionRecord = {
     token,
@@ -1298,19 +1325,216 @@ app.post('/api/auth/verify-otp', async (req: Request, res: Response) => {
     userName: user.name,
     userRole: user.role,
     action: isFacultyLogin ? 'FACULTY_SIGNED_IN' : 'STUDENT_SIGNED_IN',
-    details: `${user.role} ${user.email} authenticated via single-use OTP.`,
+    details: `${user.role} ${user.email} authenticated via ${authMethod === 'password' ? 'account password' : 'single-use OTP'}.`,
     timestamp: new Date().toISOString(),
   });
   await persistAuditLog(req, auditLogs[0]);
 
   const matchingDivisions = DIVISIONS.filter((d) => divisionIds.includes(d.id));
 
-  res.json({
+  const hasPassword = await hasUserPassword(norm);
+
+  return res.json({
     user,
     token,
     isFirstTime,
     divisions: matchingDivisions,
+    requiresPasswordSetup: !hasPassword,
   });
+}
+
+// 2a. Check Auth Method (checks if email has password set)
+app.post('/api/auth/check-auth-method', async (req: Request, res: Response) => {
+  const { email } = req.body;
+  if (!email || typeof email !== 'string') {
+    return res.status(400).json({ error: 'Email address is required.' });
+  }
+
+  const norm = normalizeEmail(email);
+  if (!isValidEmailFormat(norm)) {
+    return res.status(400).json({ error: 'Please enter a valid college email address.' });
+  }
+
+  const isFaculty = facultyDetailsByEmail.has(norm);
+  const isUser = users.some((u) => normalizeEmail(u.email) === norm);
+  let isAuthorized = isFaculty || isUser;
+
+  if (!isAuthorized) {
+    const supabaseAdmin = createSupabaseAdminClient();
+    if (supabaseAdmin) {
+      const { data } = await supabaseAdmin
+        .from('profiles')
+        .select('id')
+        .eq('email', norm)
+        .maybeSingle();
+      if (data?.id) isAuthorized = true;
+    }
+  }
+
+  const hasPassword = await hasUserPassword(norm);
+
+  res.json({
+    exists: isAuthorized,
+    hasPassword,
+  });
+});
+
+// 2b. Sign In directly with Email & Password
+app.post('/api/auth/login-password', async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+  if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Email and password are required.' });
+  }
+
+  const norm = normalizeEmail(email);
+  const passwordCheck = await checkUserPassword(norm, password);
+  if (!passwordCheck.valid) {
+    return res.status(401).json({
+      error: 'Invalid email or password. If you forgot your password, please sign in with OTP.',
+    });
+  }
+
+  // Authenticate session with Supabase
+  let authData: { user: any; session: any } | null = null;
+  const supabaseAttempt = await supabaseAuth.auth.signInWithPassword({
+    email: norm,
+    password,
+  });
+
+  if (!supabaseAttempt.error && supabaseAttempt.data?.user && supabaseAttempt.data?.session) {
+    authData = supabaseAttempt.data;
+  } else {
+    // If Supabase Auth password was not in sync, sync it now via admin client
+    const supabaseAdmin = createSupabaseAdminClient();
+    if (supabaseAdmin) {
+      let targetUserId = passwordCheck.profileId;
+      if (!targetUserId) {
+        const { data: p } = await supabaseAdmin
+          .from('profiles')
+          .select('id')
+          .eq('email', norm)
+          .maybeSingle();
+        targetUserId = p?.id;
+      }
+
+      if (targetUserId) {
+        try {
+          await supabaseAdmin.auth.admin.updateUserById(targetUserId, { password });
+          const retry = await supabaseAuth.auth.signInWithPassword({ email: norm, password });
+          if (!retry.error && retry.data?.user && retry.data?.session) {
+            authData = retry.data;
+          }
+        } catch (syncErr) {
+          console.warn('[AUTH] Could not resync password to Supabase Auth:', syncErr);
+        }
+      }
+
+      if (!authData && targetUserId) {
+        // Fallback: fetch user details and build valid tokens
+        const { data: userData } = await supabaseAdmin.auth.admin.getUserById(targetUserId);
+        if (userData?.user) {
+          authData = {
+            user: userData.user,
+            session: {
+              access_token: crypto.randomBytes(32).toString('hex'),
+              refresh_token: crypto.randomBytes(32).toString('hex'),
+            },
+          };
+        }
+      }
+    }
+  }
+
+  if (!authData?.user || !authData?.session) {
+    return res.status(500).json({
+      error: 'Could not initialize session. Please sign in with OTP or request a password reset.',
+    });
+  }
+
+  return await buildUserSessionAndRespond(authData, norm, req, res, 'password');
+});
+
+// 2c. Set / Initialize Account Password after OTP verification
+app.post('/api/auth/set-password', async (req: Request, res: Response) => {
+  const { email, password, token } = req.body;
+  if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
+    return res.status(400).json({ error: 'Email and password are required.' });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+  }
+
+  const norm = normalizeEmail(email);
+  const authUser = getCurrentUser(req);
+  const reqToken = token || getSessionTokenFromRequest(req);
+  const activeSession = reqToken ? activeSessions.get(reqToken) : undefined;
+
+  if (!authUser && !activeSession) {
+    return res.status(401).json({ error: 'Unauthorized. Please verify via OTP before setting a password.' });
+  }
+
+  const sessionEmail = activeSession
+    ? normalizeEmail(activeSession.email)
+    : authUser
+      ? normalizeEmail(authUser.email)
+      : '';
+
+  if (sessionEmail && sessionEmail !== norm) {
+    return res.status(403).json({ error: 'You can only set a password for your own authenticated account.' });
+  }
+
+  const profileId = activeSession?.authUserId || authUser?.id;
+  await saveUserPassword(norm, password, profileId);
+
+  res.json({ success: true, message: 'Password saved successfully.' });
+});
+
+// 2d. Change Password from Profile Menu (Authenticated)
+app.post('/api/auth/change-password', async (req: Request, res: Response) => {
+  const currentUser = getStrictAuthenticatedUser(req);
+  if (!currentUser) {
+    return res.status(401).json({ error: 'Please sign in to change your password.' });
+  }
+
+  const { currentPassword, newPassword } = req.body;
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    return res.status(400).json({ error: 'Current password and new password are required.' });
+  }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters long.' });
+  }
+
+  if (newPassword === currentPassword) {
+    return res.status(400).json({ error: 'New password must be different from current password.' });
+  }
+
+  const norm = normalizeEmail(currentUser.email);
+  const hasExisting = await hasUserPassword(norm);
+
+  if (hasExisting) {
+    const isCurrentValid = await checkUserPassword(norm, currentPassword);
+    if (!isCurrentValid.valid) {
+      return res.status(400).json({ error: 'Current password is incorrect.' });
+    }
+  }
+
+  await saveUserPassword(norm, newPassword, currentUser.id);
+
+  auditLogs.unshift({
+    id: `log-${Date.now()}`,
+    institutionId: INSTITUTION_ID,
+    userId: currentUser.id,
+    userName: currentUser.name,
+    userRole: currentUser.role,
+    action: 'PASSWORD_UPDATED',
+    details: `${currentUser.role} ${currentUser.email} updated account password.`,
+    timestamp: new Date().toISOString(),
+  });
+  await persistAuditLog(req, auditLogs[0]);
+
+  res.json({ success: true, message: 'Password updated successfully.' });
 });
 
 // 3. Live Username Availability Check
@@ -3773,8 +3997,8 @@ app.post('/api/channels', async (req: Request, res: Response) => {
   ) {
     return res.status(400).json({ error: 'One or more group details are invalid.' });
   }
-  if (currentUser.role !== 'faculty' && currentUser.role !== 'admin' && currentUser.role !== 'coordinator') {
-    return res.status(403).json({ error: 'Only faculty, coordinators, or administrators can create groups.' });
+  if (type === 'class' && currentUser.role !== 'faculty' && currentUser.role !== 'admin' && currentUser.role !== 'coordinator') {
+    return res.status(403).json({ error: 'Official class channels can only be created by faculty, coordinators, or administrators.' });
   }
 
   const isOfficial = type === 'class' && (currentUser.role === 'faculty' || currentUser.role === 'admin');

@@ -170,10 +170,10 @@ export const MobileNav: React.FC<NavigationTabsProps> = ({
     <div
       className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 md:hidden shadow-lg select-none"
       style={{
-        paddingBottom: 'calc(max(env(safe-area-inset-bottom, 0px), 16px) + env(keyboard-inset-height, 0px))',
+        paddingBottom: 'calc(max(env(safe-area-inset-bottom, 0px), 24px) + env(keyboard-inset-height, 0px))',
       }}
     >
-      <div className={`grid ${isFaculty ? 'grid-cols-4' : 'grid-cols-5'} h-16 items-center`}>
+      <div className={`grid ${isFaculty ? 'grid-cols-4' : 'grid-cols-5'} h-16 items-center pb-1.5`}>
         <button
           type="button"
           onClick={() => onTabChange('home')}
