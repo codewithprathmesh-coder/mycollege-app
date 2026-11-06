@@ -20,3 +20,4 @@ create policy mycollege_user_passwords_owner on public.mycollege_user_passwords
   with check (profile_id = (select auth.uid()));
 
 commit;
+

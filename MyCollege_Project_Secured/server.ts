@@ -4048,7 +4048,10 @@ app.post('/api/channels', async (req: Request, res: Response) => {
     invite_code: `JOIN-${crypto.randomBytes(6).toString('hex').toUpperCase()}`,
   };
 
-  let { data, error } = await supabase
+  const supabaseAdmin = createSupabaseAdminClient();
+  const db = supabaseAdmin || supabase;
+
+  let { data, error } = await db
     .from('channels')
     .insert(insertPayload)
     .select('*')
@@ -4058,7 +4061,7 @@ app.post('/api/channels', async (req: Request, res: Response) => {
     console.warn('[CHANNELS] Retrying channel insert without optional columns:', error.message);
     delete insertPayload.pinned_announcement_id;
     delete insertPayload.invite_code;
-    const retry = await supabase
+    const retry = await db
       .from('channels')
       .insert(insertPayload)
       .select('*')
@@ -4072,7 +4075,7 @@ app.post('/api/channels', async (req: Request, res: Response) => {
   }
 
   try {
-    await supabase
+    await db
       .from('channel_members')
       .insert({
         channel_id: data.id,
@@ -4992,7 +4995,9 @@ app.post('/api/channels/:id/admins', async (req: Request, res: Response) => {
     isVerified: targetProfile.is_verified,
     isProfileCompleted: targetProfile.is_profile_completed,
   };
-  const { error: membershipError } = await supabase
+  const supabaseAdmin = createSupabaseAdminClient();
+  const db = supabaseAdmin || supabase;
+  const { error: membershipError } = await db
     .from('channel_members')
     .upsert(
       { channel_id: channel.id, profile_id: userId, role: 'admin', status: 'active' },
@@ -5410,7 +5415,9 @@ app.post('/api/channels/:id/join', async (req: Request, res: Response) => {
     return res.status(503).json({ error: 'Could not join this group. Please try again later.' });
   }
   if (!existingMembership) {
-    const { error: joinError } = await supabase.from('channel_members').insert({
+    const supabaseAdmin = createSupabaseAdminClient();
+    const db = supabaseAdmin || supabase;
+    const { error: joinError } = await db.from('channel_members').insert({
       channel_id: channel.id,
       profile_id: currentUser.id,
       role: 'member',
