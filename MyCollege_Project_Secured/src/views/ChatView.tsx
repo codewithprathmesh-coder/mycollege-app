@@ -382,7 +382,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
         return;
       }
 
-      if (data.type === 'channels:changed') {
+      if (data.type === 'channels:changed' || (data as any).type === 'channel:deleted') {
+        if ((data as any).channelId && selectedChannel?.id === (data as any).channelId) {
+          setSelectedChannel(null);
+          setShowMobileList(true);
+        }
         void loadChannels();
         return;
       }
@@ -1348,7 +1352,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => setActiveCircleTab('members')}
+                    onClick={() => {
+                      setActiveCircleTab('members');
+                      if (selectedChannel) {
+                        loadCircleMembers(selectedChannel.id);
+                      }
+                    }}
                     className={`px-3 py-1.5 rounded-lg font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                       activeCircleTab === 'members'
                         ? 'bg-blue-50 text-blue-700 font-bold'
@@ -2855,28 +2864,55 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               <div className="flex items-center justify-between pt-2">
                 <span className="text-xs text-slate-500 font-mono">Verified Campus Document</span>
-                {previewAttachmentModal.url ? (
-                  <a
-                    href={previewAttachmentModal.url}
-                    download={previewAttachmentModal.name}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 shadow-2xs"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download File</span>
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      showToast(`Downloaded ${previewAttachmentModal.name} (${previewAttachmentModal.size})`, 'success');
+                <button
+                  type="button"
+                  onClick={() => {
+                    const att = previewAttachmentModal;
+                    if (!att.url || att.url === '#') {
+                      showToast(`Downloaded ${att.name} (${att.size})`, 'success');
                       setPreviewAttachmentModal(null);
-                    }}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 shadow-2xs cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download File</span>
-                  </button>
-                )}
+                      return;
+                    }
+                    if (att.url.startsWith('data:')) {
+                      try {
+                        const parts = att.url.split(',');
+                        const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/pdf';
+                        const bstr = atob(parts[1]);
+                        let n = bstr.length;
+                        const u8arr = new Uint8Array(n);
+                        while (n--) {
+                          u8arr[n] = bstr.charCodeAt(n);
+                        }
+                        const blob = new Blob([u8arr], { type: mime });
+                        const blobUrl = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = blobUrl;
+                        a.download = att.name;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+                        showToast(`Downloaded ${att.name}`, 'success');
+                      } catch {
+                        window.open(att.url, '_blank');
+                      }
+                    } else {
+                      const a = document.createElement('a');
+                      a.href = att.url;
+                      a.download = att.name;
+                      a.target = '_blank';
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      showToast(`Downloaded ${att.name}`, 'success');
+                    }
+                    setPreviewAttachmentModal(null);
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download File</span>
+                </button>
               </div>
             </div>
           </div>

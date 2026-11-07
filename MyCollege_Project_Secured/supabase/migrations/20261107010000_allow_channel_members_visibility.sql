@@ -25,7 +25,7 @@ create policy channels_delete_creator_or_admin
   for delete
   to authenticated
   using (
-    created_by = (select auth.uid())
+    creator_id = (select auth.uid())
     or exists (
       select 1 from public.profiles p
       where p.id = (select auth.uid())
@@ -47,7 +47,7 @@ create policy channels_update_creator_or_admin
   for update
   to authenticated
   using (
-    created_by = (select auth.uid())
+    creator_id = (select auth.uid())
     or exists (
       select 1 from public.profiles p
       where p.id = (select auth.uid())
@@ -61,7 +61,7 @@ create policy channels_update_creator_or_admin
     )
   )
   with check (
-    created_by = (select auth.uid())
+    creator_id = (select auth.uid())
     or exists (
       select 1 from public.profiles p
       where p.id = (select auth.uid())
@@ -76,3 +76,4 @@ create policy channels_update_creator_or_admin
   );
 
 commit;
+

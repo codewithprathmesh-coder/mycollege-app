@@ -69,8 +69,26 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   // User management
+  const [adminUsers, setAdminUsers] = useState<User[]>(users || []);
   const [userSearch, setUserSearch] = useState('');
   const [showAddUser, setShowAddUser] = useState(false);
+
+  useEffect(() => {
+    if (users && users.length > 0) {
+      setAdminUsers(users);
+    }
+  }, [users]);
+
+  const loadUsers = async () => {
+    try {
+      const res = await api.getUsers(currentInstitution.id);
+      if (res.users && res.users.length > 0) {
+        setAdminUsers(res.users);
+      }
+    } catch (err) {
+      console.error('Failed to load users in AdminConsole:', err);
+    }
+  };
 
   // Settings
   const [requireApproval, setRequireApproval] = useState(currentInstitution.requireApproval);
@@ -112,6 +130,7 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
   useEffect(() => {
     loadStatsAndLogs();
     loadApprovedRoster();
+    loadUsers();
   }, [currentInstitution.id]);
 
   const handleToggleStudentStatus = async (student: ApprovedStudent) => {
@@ -217,11 +236,18 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
   };
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
+    const prevUsers = [...adminUsers];
+    // Immediate optimistic update so dropdown updates without lag
+    setAdminUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
+    );
     try {
       await api.updateUserRole(userId, newRole);
       await onRefreshData();
+      await loadUsers();
       await loadStatsAndLogs();
     } catch (err: any) {
+      setAdminUsers(prevUsers);
       alert(err.message || 'Failed to update user role');
     }
   };
@@ -244,12 +270,13 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
     }
   };
 
-  const filteredUsers = users.filter((u) => {
+  const filteredUsers = adminUsers.filter((u) => {
     const q = userSearch.toLowerCase();
     return (
-      u.name.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      u.role.toLowerCase().includes(q)
+      (u.name || '').toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
+      (u.role || '').toLowerCase().includes(q) ||
+      (u.designation || '').toLowerCase().includes(q)
     );
   });
 
@@ -352,7 +379,10 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
 
         <button
           type="button"
-          onClick={() => setActiveTab('users')}
+          onClick={() => {
+            setActiveTab('users');
+            loadUsers();
+          }}
           className={`flex items-center gap-2 px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'users'
               ? 'bg-indigo-600 text-white shadow-2xs'
@@ -361,6 +391,11 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
         >
           <Users className="w-4 h-4" />
           <span>User & Role Governance</span>
+          {adminUsers.length > 0 && (
+            <span className="text-xs px-1.5 py-0.2 rounded-full bg-indigo-100 text-indigo-900 font-bold font-mono">
+              {adminUsers.length}
+            </span>
+          )}
         </button>
 
         <button

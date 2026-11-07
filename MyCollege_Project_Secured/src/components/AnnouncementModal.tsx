@@ -46,6 +46,7 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [showAiSummary, setShowAiSummary] = useState(true);
+  const [previewPdf, setPreviewPdf] = useState<{ name: string; url: string; id?: string } | null>(null);
 
   const isUrgent = announcement.priority === 'urgent';
 
@@ -80,11 +81,25 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
     }
   };
 
-  const handleDownloadAttachment = (att: { name: string; url: string }) => {
+  const handleDownloadAttachment = (att: { name: string; url: string; id?: string }) => {
     if (!att.url || att.url === '#') {
       alert('This document does not have an attached file.');
       return;
     }
+
+    // Reliable server-side download streaming with Content-Disposition
+    if (att.id && announcement.id) {
+      const serverDownloadUrl = `/api/announcements/${announcement.id}/attachments/${att.id}/download`;
+      const a = document.createElement('a');
+      a.href = serverDownloadUrl;
+      a.download = att.name;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+
     if (att.url.startsWith('data:')) {
       try {
         const parts = att.url.split(',');
@@ -109,7 +124,10 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
         const a = document.createElement('a');
         a.href = att.url;
         a.download = att.name;
+        a.target = '_blank';
+        document.body.appendChild(a);
         a.click();
+        document.body.removeChild(a);
       }
     } else {
       const a = document.createElement('a');
@@ -122,12 +140,16 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
     }
   };
 
-  const handleViewAttachment = (att: { name: string; url: string }) => {
+  const handleViewAttachment = (att: { name: string; url: string; id?: string }) => {
     if (!att.url || att.url === '#') {
       alert('This document does not have an attached file.');
       return;
     }
-    if (att.url.startsWith('data:')) {
+
+    let viewUrl = att.url;
+    if (att.id && announcement.id) {
+      viewUrl = `/api/announcements/${announcement.id}/attachments/${att.id}/view`;
+    } else if (att.url.startsWith('data:')) {
       try {
         const parts = att.url.split(',');
         const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/pdf';
@@ -138,14 +160,17 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
           u8arr[n] = bstr.charCodeAt(n);
         }
         const blob = new Blob([u8arr], { type: mime });
-        const blobUrl = URL.createObjectURL(blob);
-        window.open(blobUrl, '_blank');
+        viewUrl = URL.createObjectURL(blob);
       } catch (e) {
-        window.open(att.url, '_blank');
+        console.error('View error:', e);
       }
-    } else {
-      window.open(att.url, '_blank');
     }
+
+    setPreviewPdf({
+      name: att.name,
+      url: viewUrl,
+      id: att.id,
+    });
   };
 
   return (
@@ -472,6 +497,75 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Embedded In-App PDF Preview Dialog */}
+      {previewPdf && (
+        <div className="fixed inset-0 z-60 bg-slate-900/80 backdrop-blur-xs flex flex-col p-2 sm:p-6">
+          <div className="bg-white rounded-2xl shadow-2xl flex flex-col h-full w-full max-w-4xl mx-auto overflow-hidden border border-slate-200">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-slate-200 bg-slate-50">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-700 font-bold flex items-center justify-center text-xs shrink-0 font-mono">
+                  PDF
+                </div>
+                <div className="truncate">
+                  <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">{previewPdf.name}</h3>
+                  <p className="text-[11px] text-slate-500 font-mono">Official PDF Document</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadAttachment(previewPdf)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                  title="Download file to device"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Download</span>
+                </button>
+                <a
+                  href={previewPdf.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors"
+                  title="Open in external browser"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Browser</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setPreviewPdf(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                  title="Close preview"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Viewer Frame */}
+            <div className="flex-1 bg-slate-100 relative overflow-hidden flex flex-col items-center justify-center">
+              <iframe
+                src={previewPdf.url}
+                className="w-full h-full border-none"
+                title={previewPdf.name}
+              />
+              {/* Bottom Quick Bar for Mobile Users */}
+              <div className="w-full bg-white border-t border-slate-200 px-4 py-2.5 flex items-center justify-between text-xs text-slate-600 shrink-0">
+                <span className="truncate">Need an offline copy on your phone?</span>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadAttachment(previewPdf)}
+                  className="text-blue-600 hover:text-blue-800 font-bold underline ml-2 shrink-0 cursor-pointer"
+                >
+                  Download PDF
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

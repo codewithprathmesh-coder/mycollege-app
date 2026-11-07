@@ -1118,7 +1118,15 @@ const toggleTheme = () => {
             onApproveAnnouncement={handleApproveAnnouncement}
             onRejectAnnouncement={handleRejectAnnouncement}
             onOpenDetails={handleOpenAnnouncement}
-            onRefreshData={fetchAnnouncements}
+            onRefreshData={async () => {
+              await fetchAnnouncements();
+              try {
+                const uRes = await api.getUsers(currentInstitution.id);
+                if (uRes.users) setAllUsers(uRes.users);
+              } catch (e) {
+                console.error('Failed to reload all users:', e);
+              }
+            }}
           />
         )}
       </main>
