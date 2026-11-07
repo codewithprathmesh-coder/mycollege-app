@@ -114,8 +114,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [newGroupTitle, setNewGroupTitle] = useState('');
   const [newGroupDescription, setNewGroupDescription] = useState('');
-  const [newGroupType, setNewGroupType] = useState<ChannelType>('project');
+  const [newGroupType, setNewGroupType] = useState<ChannelType>('class');
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [groupTitleInput, setGroupTitleInput] = useState('');
+  const [groupDescInput, setGroupDescInput] = useState('');
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
 
   // Attachment & Pin state
   const [attachment, setAttachment] = useState<{
@@ -517,6 +521,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleCreateGroup = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (currentUser.role === 'student') {
+      showToast('Students are not authorized to create groups.', 'error');
+      return;
+    }
     if (!newGroupTitle.trim()) return;
 
     try {
@@ -529,11 +537,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
       });
       setChannels((previous) => [response.channel, ...previous.filter((channel) => channel.id !== response.channel.id)]);
       setSelectedChannel(response.channel);
+      setChannelFilter(response.channel.type === 'project' ? 'interest' : response.channel.type);
       setShowMobileList(false);
       setShowCreateGroupModal(false);
       setNewGroupTitle('');
       setNewGroupDescription('');
-      setNewGroupType('project');
+      setNewGroupType('class');
       showToast('Group created successfully.', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to create group.', 'error');
@@ -822,18 +831,47 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }
   };
 
-  // 9. UPDATE GROUP SETTINGS (Permissions: Who can send messages)
+  // 9. GROUP SETTINGS & DELETION (Admins only)
+  const handleOpenGroupSettings = () => {
+    if (!selectedChannel) return;
+    setGroupTitleInput(selectedChannel.title);
+    setGroupDescInput(selectedChannel.description || '');
+    setOnlyAdminsMessage(Boolean(selectedChannel.onlyAdminsCanMessage));
+    setShowGroupSettingsModal(true);
+  };
+
   const handleSaveGroupSettings = async () => {
     if (!selectedChannel || !isCircleAdmin) return;
     try {
       const res = await api.updateGroupSettings(selectedChannel.id, {
+        title: groupTitleInput.trim() || selectedChannel.title,
+        description: groupDescInput.trim(),
         onlyAdminsCanMessage: onlyAdminsMessage,
       });
       setSelectedChannel(res.channel);
+      setChannels((prev) => prev.map((c) => (c.id === res.channel.id ? res.channel : c)));
       setShowGroupSettingsModal(false);
-      showToast('Group permissions updated successfully', 'success');
+      showToast('Group settings updated successfully', 'success');
     } catch (err: any) {
       showToast(err.message || 'Failed to update group settings', 'error');
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!selectedChannel || !isCircleAdmin) return;
+    try {
+      setIsDeletingGroup(true);
+      const targetId = selectedChannel.id;
+      await api.deleteChannel(targetId);
+      setChannels((prev) => prev.filter((c) => c.id !== targetId));
+      setSelectedChannel(null);
+      setShowDeleteConfirmModal(false);
+      setShowGroupSettingsModal(false);
+      showToast('Group deleted successfully.', 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete group', 'error');
+    } finally {
+      setIsDeletingGroup(false);
     }
   };
 
@@ -916,7 +954,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
       ));
     if (!hasAccess) return false;
 
-    const matchesFilter = channelFilter === 'all' || c.type === channelFilter;
+    const matchesFilter =
+      channelFilter === 'all' ||
+      (channelFilter === 'class' && c.type === 'class') ||
+      (channelFilter === 'interest' && (c.type === 'interest' || c.type === 'project')) ||
+      (channelFilter === 'club' && c.type === 'club');
     const matchesSearch =
       !channelSearch.trim() ||
       c.title.toLowerCase().includes(channelSearch.toLowerCase()) ||
@@ -994,14 +1036,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowCreateGroupModal(true)}
-              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Create Group
-            </button>
+            {currentUser.role !== 'student' && (
+              <button
+                type="button"
+                onClick={() => setShowCreateGroupModal(true)}
+                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Create Group
+              </button>
+            )}
 
             {/* Search channels input */}
             <div className="relative">
@@ -1054,14 +1098,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <div className="p-8 text-center text-xs text-slate-400 space-y-2.5">
                 <Users className="w-6 h-6 mx-auto opacity-30" />
                 <p>No groups found matching filter.</p>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateGroupModal(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold rounded-lg text-xs transition-colors cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Create a Group
-                </button>
+                {currentUser.role !== 'student' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateGroupModal(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold rounded-lg text-xs transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Create a Group
+                  </button>
+                )}
               </div>
             ) : (
               filteredChannels.map((chan) => {
@@ -1219,16 +1265,26 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </button>
                     )}
 
-                    {/* Group Settings Button (WhatsApp Group Info / Permissions) */}
+                    {/* Group Settings & Delete Buttons (Group Admins & App Admins) */}
                     {isCircleAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => setShowGroupSettingsModal(true)}
-                        className="p-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-xl transition-colors cursor-pointer"
-                        title="Group Settings & Admin Permissions"
-                      >
-                        <Settings className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={handleOpenGroupSettings}
+                          className="p-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 rounded-xl transition-colors cursor-pointer"
+                          title="Group Settings & Admin Permissions"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowDeleteConfirmModal(true)}
+                          className="p-2 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-300 text-slate-500 hover:text-rose-600 rounded-xl transition-colors cursor-pointer"
+                          title="Delete Group"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -2527,7 +2583,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Settings className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-base text-slate-900">Group Permissions</h3>
+                <h3 className="font-bold text-base text-slate-900">Group Settings</h3>
               </div>
               <button
                 type="button"
@@ -2538,7 +2594,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </button>
             </div>
 
-            <div className="p-6 space-y-5 text-xs sm:text-sm">
+            <div className="p-6 space-y-4 text-xs sm:text-sm">
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700">Group Title</label>
+                <input
+                  type="text"
+                  value={groupTitleInput}
+                  onChange={(e) => setGroupTitleInput(e.target.value)}
+                  maxLength={80}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl text-slate-900 outline-none text-xs sm:text-sm font-medium"
+                  placeholder="Group title"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="font-semibold text-slate-700">Group Description</label>
+                <textarea
+                  value={groupDescInput}
+                  onChange={(e) => setGroupDescInput(e.target.value)}
+                  maxLength={300}
+                  rows={3}
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl text-slate-900 outline-none text-xs sm:text-sm"
+                  placeholder="Group description..."
+                />
+              </div>
+
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -2567,6 +2647,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 </div>
               </div>
 
+              {/* Danger Zone: Delete Group */}
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl flex items-center justify-between">
+                <div>
+                  <h6 className="font-bold text-rose-900 text-xs">Delete This Group</h6>
+                  <p className="text-[11px] text-rose-600">Permanently delete this group and all messages.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirmModal(true)}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs rounded-xl shadow-2xs transition-colors cursor-pointer"
+                >
+                  Delete
+                </button>
+              </div>
+
               <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
                 <button
                   type="button"
@@ -2581,6 +2676,43 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-2xs cursor-pointer"
                 >
                   Save Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Group Confirmation Modal */}
+      {showDeleteConfirmModal && selectedChannel && (
+        <div className="fixed inset-0 z-60 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl border border-rose-100 overflow-hidden my-6 animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6 text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-bold text-base text-slate-900">Delete Group?</h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  Are you sure you want to delete <strong className="text-slate-800">"{selectedChannel.title}"</strong>? All chat messages, media, and records in this group will be deleted permanently. This action cannot be undone.
+                </p>
+              </div>
+              <div className="pt-2 flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  disabled={isDeletingGroup}
+                  onClick={() => setShowDeleteConfirmModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingGroup}
+                  onClick={handleDeleteGroup}
+                  className="px-5 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 rounded-xl shadow-2xs transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  {isDeletingGroup ? 'Deleting...' : 'Yes, Delete Group'}
                 </button>
               </div>
             </div>
@@ -2800,14 +2932,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   id="new-group-type"
                   value={newGroupType}
                   onChange={(event) => setNewGroupType(event.target.value as ChannelType)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500 bg-white cursor-pointer"
                 >
-                  {(currentUser.role === 'faculty' || currentUser.role === 'admin' || currentUser.role === 'coordinator') && (
-                    <option value="class">Official Class Channel</option>
-                  )}
-                  <option value="project">Project / Study Group</option>
-                  <option value="club">Club / Committee</option>
-                  <option value="interest">Interest / Topic</option>
+                  <option value="class">Academic & Class</option>
+                  <option value="interest">Tech & AI</option>
+                  <option value="club">Clubs & Sports</option>
                 </select>
               </div>
               <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">

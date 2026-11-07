@@ -49,3 +49,4 @@ set role = 'student',
 where lower(email) = 'pjayshree062@gmail.com';
 
 commit;
+

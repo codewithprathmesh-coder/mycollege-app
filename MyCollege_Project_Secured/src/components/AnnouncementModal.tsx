@@ -15,6 +15,8 @@ import {
   Download,
   Ticket,
   MessageSquare,
+  Eye,
+  FileText,
 } from 'lucide-react';
 import type { Announcement, EventRegistration, User } from '../types';
 
@@ -75,6 +77,74 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
       await onRegister(announcement.id);
     } finally {
       setIsRegistering(false);
+    }
+  };
+
+  const handleDownloadAttachment = (att: { name: string; url: string }) => {
+    if (!att.url || att.url === '#') {
+      alert('This document does not have an attached file.');
+      return;
+    }
+    if (att.url.startsWith('data:')) {
+      try {
+        const parts = att.url.split(',');
+        const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/pdf';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = att.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      } catch (e) {
+        console.error('Download error:', e);
+        const a = document.createElement('a');
+        a.href = att.url;
+        a.download = att.name;
+        a.click();
+      }
+    } else {
+      const a = document.createElement('a');
+      a.href = att.url;
+      a.download = att.name;
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
+  const handleViewAttachment = (att: { name: string; url: string }) => {
+    if (!att.url || att.url === '#') {
+      alert('This document does not have an attached file.');
+      return;
+    }
+    if (att.url.startsWith('data:')) {
+      try {
+        const parts = att.url.split(',');
+        const mime = parts[0].match(/:(.*?);/)?.[1] || 'application/pdf';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const blobUrl = URL.createObjectURL(blob);
+        window.open(blobUrl, '_blank');
+      } catch (e) {
+        window.open(att.url, '_blank');
+      }
+    } else {
+      window.open(att.url, '_blank');
     }
   };
 
@@ -319,7 +389,7 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
             </div>
           )}
 
-          {/* Attachments */}
+          {/* Attachments & PDFs */}
           {announcement.attachments && announcement.attachments.length > 0 && (
             <div className="space-y-2">
               <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
@@ -329,29 +399,39 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
                 {announcement.attachments.map((att) => (
                   <div
                     key={att.id}
-                    className="flex items-center justify-between p-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100/70 transition-colors"
+                    className="flex items-center justify-between p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/70 transition-colors shadow-2xs"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <Paperclip className="w-4 h-4 text-blue-600 shrink-0" />
+                      <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-700 font-bold flex items-center justify-center text-[10px] shrink-0 font-mono">
+                        PDF
+                      </div>
                       <div className="truncate">
-                        <div className="text-xs sm:text-sm font-medium text-slate-900 truncate">
+                        <div className="text-xs sm:text-sm font-semibold text-slate-900 truncate">
                           {att.name}
                         </div>
                         <div className="text-[11px] text-slate-500 font-mono">{att.size}</div>
                       </div>
                     </div>
-                    <a
-                      href={att.url}
-                      download={att.name}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        alert(`Downloading verified circular document: ${att.name}`);
-                      }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-blue-700 hover:bg-blue-50 border border-blue-200 transition-colors shrink-0 ml-3"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Download</span>
-                    </a>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                      <button
+                        type="button"
+                        onClick={() => handleViewAttachment(att)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-700 hover:text-blue-700 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 transition-colors cursor-pointer"
+                        title="View PDF Document"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-blue-600" />
+                        <span>View</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadAttachment(att)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-2xs cursor-pointer"
+                        title="Download PDF File"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download</span>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

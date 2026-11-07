@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   X,
   Sparkles,
@@ -12,6 +12,9 @@ import {
   Send,
   Plus,
   Trash2,
+  FileText,
+  UploadCloud,
+  Loader2,
 } from 'lucide-react';
 import type {
   Announcement,
@@ -74,9 +77,10 @@ export const CreateAnnouncementModal: React.FC<CreateAnnouncementModalProps> = (
   const [aiSummary, setAiSummary] = useState(initialAnnouncement?.aiSummary || '');
   const [isSummarizing, setIsSummarizing] = useState(false);
 
-  // Attachments
+  // Attachments & PDF Upload
   const [attachments, setAttachments] = useState(initialAnnouncement?.attachments || []);
-  const [newAttachmentName, setNewAttachmentName] = useState('');
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingPdf, setIsUploadingPdf] = useState(false);
 
   // Form states
   const [error, setError] = useState<string | null>(null);
@@ -101,23 +105,57 @@ export const CreateAnnouncementModal: React.FC<CreateAnnouncementModalProps> = (
     }
   };
 
-  const handleAddAttachment = () => {
-    if (!newAttachmentName.trim()) return;
-    setAttachments([
-      ...attachments,
-      {
-        id: `att-${Date.now()}`,
-        name: newAttachmentName.endsWith('.pdf') ? newAttachmentName : `${newAttachmentName}.pdf`,
-        size: '1.2 MB',
-        type: 'application/pdf',
-        url: '#',
-      },
-    ]);
-    setNewAttachmentName('');
+  const handlePdfUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      setError('Please select a valid PDF document (.pdf).');
+      e.target.value = '';
+      return;
+    }
+
+    if (file.size > 25 * 1024 * 1024) {
+      setError('PDF file size exceeds 25 MB limit.');
+      e.target.value = '';
+      return;
+    }
+
+    setIsUploadingPdf(true);
+    setError(null);
+
+    const formatSize = (bytes: number) => {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    };
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          name: file.name,
+          size: formatSize(file.size),
+          type: 'application/pdf',
+          url: dataUrl,
+        },
+      ]);
+      setIsUploadingPdf(false);
+      if (pdfInputRef.current) pdfInputRef.current.value = '';
+    };
+    reader.onerror = () => {
+      setError('Failed to read the selected PDF file.');
+      setIsUploadingPdf(false);
+      if (pdfInputRef.current) pdfInputRef.current.value = '';
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleRemoveAttachment = (id: string) => {
-    setAttachments(attachments.filter((a) => a.id !== id));
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -468,45 +506,81 @@ export const CreateAnnouncementModal: React.FC<CreateAnnouncementModalProps> = (
               )}
             </div>
 
-            {/* Attachments Section */}
+            {/* Attachments Section (Real PDF Upload) */}
             <div className="pt-2 border-t border-slate-100">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Official Attachments & Circulars
-              </label>
-              <div className="flex gap-2 mb-2">
-                <input
-                  type="text"
-                  value={newAttachmentName}
-                  onChange={(e) => setNewAttachmentName(e.target.value)}
-                  placeholder="e.g. Revised_Timetable_V5.pdf"
-                  className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs"
-                />
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Official Attachments & Circulars (PDF)
+                </label>
+                <span className="text-[11px] text-slate-400 font-medium">Up to 25 MB (.pdf)</span>
+              </div>
+
+              <input
+                type="file"
+                ref={pdfInputRef}
+                onChange={handlePdfUpload}
+                accept=".pdf,application/pdf"
+                className="hidden"
+              />
+
+              <div className="mb-3">
                 <button
                   type="button"
-                  onClick={handleAddAttachment}
-                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center gap-1"
+                  onClick={() => pdfInputRef.current?.click()}
+                  disabled={isUploadingPdf}
+                  className="w-full py-3 px-4 border-2 border-dashed border-slate-200 hover:border-blue-400 bg-slate-50 hover:bg-blue-50/50 rounded-xl flex items-center justify-center gap-2 text-xs font-semibold text-slate-700 hover:text-blue-700 transition-all cursor-pointer group"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add PDF</span>
+                  {isUploadingPdf ? (
+                    <>
+                      <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+                      <span>Reading and attaching PDF...</span>
+                    </>
+                  ) : (
+                    <>
+                      <UploadCloud className="w-4 h-4 text-slate-400 group-hover:text-blue-600 transition-colors" />
+                      <span>Click to upload or attach official PDF circular</span>
+                    </>
+                  )}
                 </button>
               </div>
 
               {attachments.map((a) => (
                 <div
                   key={a.id}
-                  className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 text-xs mb-1.5"
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs mb-2 shadow-2xs"
                 >
-                  <span className="flex items-center gap-2 text-slate-800">
-                    <Paperclip className="w-3.5 h-3.5 text-blue-600" />
-                    {a.name}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveAttachment(a.id)}
-                    className="text-rose-500 hover:text-rose-700 p-1"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 font-bold flex items-center justify-center text-[10px] shrink-0 font-mono">
+                      PDF
+                    </div>
+                    <div className="min-w-0 truncate">
+                      <div className="text-slate-800 font-semibold truncate">{a.name}</div>
+                      <div className="text-[10px] text-slate-400 font-mono">{a.size}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
+                    {a.url && a.url !== '#' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const w = window.open();
+                          if (w) w.location.href = a.url;
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                        title="Preview attached PDF"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(a.id)}
+                      className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                      title="Remove PDF"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

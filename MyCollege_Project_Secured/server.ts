@@ -96,7 +96,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Initial Gemini AI client setup
 let aiClient: GoogleGenAI | null = null;
@@ -727,7 +728,8 @@ async function loadChannelForRequest(
     res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
     return null;
   }
-  const { data: row, error } = await supabase
+  const db = createSupabaseAdminClient() || supabase;
+  const { data: row, error } = await db
     .from('channels')
     .select('*')
     .eq('id', channelId)
@@ -741,7 +743,7 @@ async function loadChannelForRequest(
     res.status(404).json({ error: 'Channel not found.' });
     return null;
   }
-  const { data: memberships, error: membersError } = await supabase
+  const { data: memberships, error: membersError } = await db
     .from('channel_members')
     .select('profile_id, role, status')
     .eq('channel_id', channelId);
@@ -1756,7 +1758,7 @@ app.post('/api/auth/accept-terms', async (req: Request, res: Response) => {
   if (!currentUser) return;
 
   const termsAcceptedAt = new Date().toISOString();
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -1810,7 +1812,7 @@ app.post('/api/auth/complete-profile', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'This username is already taken. Please pick another one.' });
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -1931,7 +1933,7 @@ app.get('/api/auth/session', async (req: Request, res: Response) => {
 // 7. Get College Divisions
 app.get('/api/divisions', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -1972,7 +1974,7 @@ app.get('/api/admin/approved-students', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Administrative privileges required to inspect approved student roster.' });
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2073,7 +2075,7 @@ app.post('/api/admin/approved-students', async (req: Request, res: Response) => 
     return res.status(403).json({ error: 'Administrative privileges required.' });
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2171,7 +2173,7 @@ app.put('/api/admin/approved-students/:email', async (req: Request, res: Respons
     return res.status(403).json({ error: 'Administrative privileges required.' });
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2293,7 +2295,7 @@ app.get('/api/users', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'You cannot access users from another institution.' });
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2420,7 +2422,7 @@ app.put('/api/users/:id/role', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Administrators cannot change their own role.' });
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2548,7 +2550,7 @@ app.put('/api/me/preferences', async (req: Request, res: Response) => {
     ...currentUser.notificationPreferences,
     ...notificationPreferences,
   };
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2578,7 +2580,7 @@ app.put('/api/me/preferences', async (req: Request, res: Response) => {
 // 2. Institutions & Multi-tenancy
 app.get('/api/institutions', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2610,7 +2612,7 @@ app.get('/api/institutions/:id', async (req: Request, res: Response) => {
   if (req.params.id !== currentUser.institutionId) {
     return res.status(403).json({ error: 'You cannot view another institution.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2657,7 +2659,7 @@ app.put('/api/institutions/:id/settings', async (req: Request, res: Response) =>
   if (requireApproval === undefined && allowedDomains === undefined) {
     return res.status(400).json({ error: 'Provide at least one setting to update.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2710,7 +2712,7 @@ app.get('/api/departments', async (req: Request, res: Response) => {
   if (institutionId !== currentUser.institutionId) {
     return res.status(403).json({ error: 'You cannot view departments from another institution.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2752,7 +2754,7 @@ app.post('/api/departments', async (req: Request, res: Response) => {
   if (courses !== undefined && (!Array.isArray(courses) || !courses.every((course) => typeof course === 'string'))) {
     return res.status(400).json({ error: 'Courses must be a list of text values.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -2966,7 +2968,7 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
   if (institutionId !== currentUser.institutionId) {
     return res.status(403).json({ error: 'You cannot view announcements from another institution.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3097,7 +3099,7 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
 // Single announcement details
 app.get('/api/announcements/:id', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3196,7 +3198,7 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
   if (priority !== undefined && !['urgent', 'high', 'normal', 'low'].includes(priority)) {
     return res.status(400).json({ error: 'Announcement priority is invalid.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3304,7 +3306,7 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
 // Edit announcement
 app.put('/api/announcements/:id', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3471,7 +3473,7 @@ app.post('/api/announcements/:id/approve', async (req: Request, res: Response) =
   if (currentUser.role !== 'admin') {
     return res.status(403).json({ error: 'Admin authorization required to approve announcements.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3527,7 +3529,7 @@ app.post('/api/announcements/:id/reject', async (req: Request, res: Response) =>
   if (reason !== undefined && typeof reason !== 'string') {
     return res.status(400).json({ error: 'Rejection reason must be text.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3576,7 +3578,7 @@ app.post('/api/announcements/:id/reject', async (req: Request, res: Response) =>
 // Delete or Archive announcement
 app.delete('/api/announcements/:id', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3624,7 +3626,7 @@ app.delete('/api/announcements/:id', async (req: Request, res: Response) => {
 app.post('/api/announcements/:id/save', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
   const annId = req.params.id;
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3674,7 +3676,7 @@ app.post('/api/announcements/:id/save', async (req: Request, res: Response) => {
 
 app.get('/api/saved-announcements', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3710,7 +3712,7 @@ app.get('/api/saved-announcements', async (req: Request, res: Response) => {
 // 5. Event Registrations & Applications
 app.get('/api/registrations', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3765,7 +3767,7 @@ app.post('/api/registrations', async (req: Request, res: Response) => {
   if (typeof announcementId !== 'string') {
     return res.status(400).json({ error: 'An announcement ID is required.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3850,7 +3852,7 @@ app.post('/api/registrations', async (req: Request, res: Response) => {
 
 app.delete('/api/registrations/:id', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3873,7 +3875,7 @@ app.delete('/api/registrations/:id', async (req: Request, res: Response) => {
 // 6. Notifications
 app.get('/api/notifications', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3913,7 +3915,7 @@ app.get('/api/notifications', async (req: Request, res: Response) => {
 
 app.put('/api/notifications/:id/read', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -3934,7 +3936,7 @@ app.put('/api/notifications/:id/read', async (req: Request, res: Response) => {
 
 app.put('/api/notifications/mark-all-read', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4036,7 +4038,7 @@ app.get('/api/audit-logs', async (req: Request, res: Response) => {
   if (institutionId !== currentUser.institutionId) {
     return res.status(403).json({ error: 'You cannot inspect another institution’s audit logs.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4079,7 +4081,7 @@ app.get('/api/channels', async (req: Request, res: Response) => {
   if (institutionId !== currentUser.institutionId) {
     return res.status(403).json({ error: 'You cannot view another institution’s groups.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4182,6 +4184,9 @@ app.post('/api/channels', async (req: Request, res: Response) => {
   ) {
     return res.status(400).json({ error: 'One or more group details are invalid.' });
   }
+  if (currentUser.role === 'student') {
+    return res.status(403).json({ error: 'Students are not authorized to create groups. Please contact faculty or administrator.' });
+  }
   if (type === 'class' && currentUser.role !== 'faculty' && currentUser.role !== 'admin' && currentUser.role !== 'coordinator') {
     return res.status(403).json({ error: 'Official class channels can only be created by faculty, coordinators, or administrators.' });
   }
@@ -4206,7 +4211,7 @@ app.post('/api/channels', async (req: Request, res: Response) => {
     pinnedAnnouncementId: pinnedAnnouncementId || undefined,
   };
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4300,7 +4305,7 @@ app.get('/api/channels/:id/messages', async (req: Request, res: Response) => {
     }
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4456,7 +4461,7 @@ app.post('/api/channels/:id/messages', async (req: Request, res: Response) => {
     status: 'delivered',
   };
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4536,7 +4541,7 @@ app.post('/api/channels/:id/messages/:msgId/reactions', async (req: Request, res
   if (typeof emoji !== 'string' || emoji.length === 0 || emoji.length > 16) {
     return res.status(400).json({ error: 'A valid emoji reaction is required.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4628,7 +4633,7 @@ app.post('/api/channels/:id/messages/:msgId/pin', async (req: Request, res: Resp
   if (!isCircleAdmin) {
     return res.status(403).json({ error: 'Only group administrators can pin messages.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4683,7 +4688,7 @@ app.delete('/api/channels/:id/messages/:msgId', async (req: Request, res: Respon
   if (channel.institutionId !== currentUser.institutionId) {
     return res.status(403).json({ error: 'You cannot update another institution’s group.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4781,7 +4786,7 @@ app.post('/api/channels/:id/polls', async (req: Request, res: Response) => {
     status: 'delivered',
   };
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4858,7 +4863,7 @@ app.post('/api/channels/:id/messages/:msgId/vote', async (req: Request, res: Res
   if (typeof optionId !== 'string') {
     return res.status(400).json({ error: 'A poll option is required.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -4977,12 +4982,13 @@ app.get('/api/channels/:id/members', async (req: Request, res: Response) => {
   }
 
   const memberIds = channel.memberIds || [];
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
+  const db = createSupabaseAdminClient() || supabase;
   const { data: profiles, error } = memberIds.length > 0
-    ? await supabase
+    ? await db
         .from('profiles')
         .select('id, institution_id, full_name, email, role, department_id, username, designation, course, year, roll_no, phone, avatar_url, is_verified, is_profile_completed')
         .in('id', memberIds)
@@ -5009,8 +5015,8 @@ app.get('/api/channels/:id/members', async (req: Request, res: Response) => {
     is_profile_completed: boolean;
   }[];
   const members: User[] = profileRows.map((profile) => {
-    const cachedUser = users.find((user) => user.id === profile.id);
-    if (cachedUser) return cachedUser;
+    const cachedUser = users.find((user) => user.id === profile.id || user.email === profile.email);
+    if (cachedUser) return { ...cachedUser, id: profile.id, role: (profile.role || cachedUser.role) as UserRole, designation: profile.designation || cachedUser.designation };
     return {
       id: profile.id,
       institutionId: profile.institution_id,
@@ -5032,6 +5038,18 @@ app.get('/api/channels/:id/members', async (req: Request, res: Response) => {
       isProfileCompleted: profile.is_profile_completed,
     };
   });
+
+  // Guarantee every member in memberIds is in members list even if profile sync was delayed
+  const foundMemberIds = new Set(members.map((m) => m.id));
+  for (const mId of memberIds) {
+    if (!foundMemberIds.has(mId)) {
+      const fallbackUser = users.find((u) => u.id === mId);
+      if (fallbackUser) {
+        members.push(fallbackUser);
+        foundMemberIds.add(fallbackUser.id);
+      }
+    }
+  }
 
   res.json({
     members,
@@ -5147,7 +5165,7 @@ app.post('/api/channels/:id/admins', async (req: Request, res: Response) => {
 
   const { userId } = req.body;
   if (typeof userId !== 'string') return res.status(400).json({ error: 'userId is required.' });
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5239,7 +5257,7 @@ app.delete('/api/channels/:id/admins/:userId', async (req: Request, res: Respons
     return res.status(400).json({ error: 'The group creator cannot be dismissed as an administrator.' });
   }
   const targetUser = users.find((u) => u.id === targetUserId);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5326,7 +5344,7 @@ app.put('/api/channels/:id/settings', async (req: Request, res: Response) => {
     }
     updates.only_admins_can_edit_info = onlyAdminsCanEditInfo;
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5354,6 +5372,48 @@ app.put('/api/channels/:id/settings', async (req: Request, res: Response) => {
   res.json({ success: true, channel });
 });
 
+// Delete Channel / Group (Allowed only for group admin and app admin)
+app.delete('/api/channels/:id', async (req: Request, res: Response) => {
+  const currentUser = getCurrentUser(req);
+  const channel = await loadChannelForRequest(req, res, req.params.id);
+  if (!channel) return;
+  if (channel.institutionId !== currentUser.institutionId) {
+    return res.status(403).json({ error: 'You cannot delete another institution’s group.' });
+  }
+
+  const isCircleAdmin = userCanManageChannel(currentUser, channel);
+  if (!isCircleAdmin) {
+    return res.status(403).json({ error: 'Only group administrators or application administrators can delete this group.' });
+  }
+
+  const db = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
+  if (db) {
+    try {
+      await db.from('channel_messages').delete().eq('channel_id', channel.id);
+      await db.from('channel_members').delete().eq('channel_id', channel.id);
+      await db.from('channel_announcements').delete().eq('channel_id', channel.id);
+      const { error: delErr } = await db.from('channels').delete().eq('id', channel.id);
+      if (delErr) {
+        console.error('Could not delete group from Supabase:', delErr.code);
+        return res.status(503).json({ error: 'Could not delete group. Please try again later.' });
+      }
+    } catch (e: any) {
+      console.error('Error during group deletion:', e);
+      return res.status(503).json({ error: 'Failed to delete group.' });
+    }
+  }
+
+  const idx = chatChannels.findIndex((c) => c.id === channel.id);
+  if (idx >= 0) chatChannels.splice(idx, 1);
+
+  broadcastToInstitution(currentUser.institutionId, {
+    type: 'channel:deleted',
+    channelId: channel.id,
+  });
+
+  res.json({ success: true, channelId: channel.id });
+});
+
 // Reset Invite Code
 app.post('/api/channels/:id/reset-invite', async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
@@ -5370,7 +5430,7 @@ app.post('/api/channels/:id/reset-invite', async (req: Request, res: Response) =
   }
 
   const inviteCode = `JOIN-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5407,7 +5467,7 @@ app.post('/api/channels/:id/members', async (req: Request, res: Response) => {
   if (typeof email !== 'string' && typeof userId !== 'string') {
     return res.status(400).json({ error: 'A member email or userId is required.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5528,7 +5588,7 @@ app.delete('/api/channels/:id/members/:userId', async (req: Request, res: Respon
   }
 
   const targetUser = users.find((u) => u.id === req.params.userId);
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5585,7 +5645,7 @@ app.post('/api/channels/:id/join', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'You cannot join another institution’s group.' });
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5647,7 +5707,7 @@ app.get('/api/channels/:id/announcements', async (req: Request, res: Response) =
     return res.status(403).json({ error: 'You cannot view another institution’s group announcements.' });
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5724,7 +5784,7 @@ app.post('/api/channels/:id/announcements', async (req: Request, res: Response) 
   ) {
     return res.status(400).json({ error: 'Title and content are required for circle announcements.' });
   }
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5875,7 +5935,7 @@ app.get('/api/batch-directory', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Select a valid department.' });
   }
 
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
@@ -5946,7 +6006,7 @@ app.post('/api/batch-directory/students', async (req: Request, res: Response) =>
   }
 
   const divisionId = cleanDivision === 'Div A' ? DIVISION_IDS.a : DIVISION_IDS.b;
-  const supabase = await getSupabaseClientForRequest(req);
+  const supabase = createSupabaseAdminClient() || (await getSupabaseClientForRequest(req));
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }

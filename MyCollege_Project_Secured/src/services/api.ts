@@ -389,6 +389,12 @@ export const api = {
     });
   },
 
+  async deleteChannel(channelId: string): Promise<{ success: boolean; channelId?: string }> {
+    return request(`/api/channels/${channelId}`, {
+      method: 'DELETE',
+    });
+  },
+
   async resetInviteCode(channelId: string): Promise<{ success: boolean; inviteCode: string; inviteLink: string }> {
     return request(`/api/channels/${channelId}/reset-invite`, {
       method: 'POST',
