@@ -44,6 +44,20 @@ export function clearSession() {
   localStorage.removeItem('mycollege_active_user_id');
 }
 
+function resolveApiUrl(endpoint: string): string {
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    return endpoint;
+  }
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.protocol === 'capacitor:' ||
+      (window.location.hostname === 'localhost' && !window.location.port))
+  ) {
+    return `https://mycollege-app.onrender.com${endpoint}`;
+  }
+  return endpoint;
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
   if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
@@ -56,7 +70,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers.set('x-session-token', token);
   }
 
-  const res = await fetch(endpoint, {
+  const url = resolveApiUrl(endpoint);
+  const res = await fetch(url, {
     ...options,
     credentials: 'include',
     headers,

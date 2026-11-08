@@ -271,6 +271,7 @@ export const AdminConsoleView: React.FC<AdminConsoleViewProps> = ({
   };
 
   const filteredUsers = adminUsers.filter((u) => {
+    if (!u) return false;
     const q = userSearch.toLowerCase();
     return (
       (u.name || '').toLowerCase().includes(q) ||

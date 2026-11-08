@@ -1,5 +1,6 @@
  import { createAuthenticatedSupabaseClient, createSupabaseAdminClient, supabaseAuth } from './supabaseAuthClient';
- import express, { Request, Response } from 'express';
+ import express, { Request, Response, NextFunction } from 'express';
+import fs from 'fs';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import dotenv from 'dotenv';
@@ -96,6 +97,20 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Universal CORS & Preflight handling
+app.use((req, res, next) => {
+  const origin = req.headers.origin || '*';
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-session-token');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -6290,12 +6305,17 @@ function broadcastToInstitution(institutionId: string, payload: {
 }
 
 async function startServer() {
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+  const distDir = path.resolve(__dirname, 'dist');
+  const indexHtml = path.resolve(distDir, 'index.html');
+
+  if (process.env.NODE_ENV === 'production' && fs.existsSync(indexHtml)) {
+    console.log(`Serving static production build from ${distDir}`);
+    app.use(express.static(distDir));
     app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      res.sendFile(indexHtml);
     });
   } else {
+    console.log('Serving with Vite middleware (development or missing dist fallback)...');
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -6303,6 +6323,14 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   }
+
+  // Global Express uncaught error handler
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('Unhandled server error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
 
   server.listen(PORT, () => {
     console.log(`MyCollege Server & WebSockets running on port ${PORT}`);

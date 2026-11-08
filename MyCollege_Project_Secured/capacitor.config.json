@@ -1,10 +1,6 @@
 {
   "appId": "com.mycollege.app",
   "appName": "MyCollege",
-  "webDir": "dist",
-  "server": {
-    "url": "https://mycollege-app.onrender.com",
-    "cleartext": true
-  }
+  "webDir": "dist"
 }
 

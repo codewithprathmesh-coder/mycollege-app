@@ -124,11 +124,22 @@ const toggleTheme = () => {
         return;
       }
 
-      const instRes = await api.getInstitutions();
-      setInstitutions(instRes.institutions);
-      const defaultInst = instRes.institutions[0];
+      const instRes = await api.getInstitutions().catch(() => ({ institutions: [] }));
+      const fallbackInst: Institution = {
+        id: '00000000-0000-4000-8000-000000000001',
+        name: 'K. J. Somaiya institute of Engineering & Information Technology (KJSIEIT)',
+        shortName: 'KJSIEIT',
+        domain: 'somaiya.edu',
+        allowedDomains: ['somaiya.edu', 'kjsieit.edu.in'],
+        requireApproval: true,
+        city: 'Sion, Mumbai, Maharashtra',
+        established: '2003',
+      };
+      const instList = instRes.institutions && instRes.institutions.length > 0 ? instRes.institutions : [fallbackInst];
+      setInstitutions(instList);
+      const defaultInst = instList[0];
       const activeInst =
-        instRes.institutions.find((i) => i.id === user.institutionId) || defaultInst;
+        instList.find((i) => i.id === user.institutionId) || defaultInst;
       setCurrentInstitution(activeInst);
 
       if (!user.isProfileCompleted) {
@@ -140,26 +151,30 @@ const toggleTheme = () => {
       setAuthState('authenticated');
 
       const [deptRes, usersRes, savedRes, regRes, notifRes] = await Promise.all([
-        api.getDepartments(activeInst.id),
-        api.getUsers(activeInst.id),
-        api.getSavedAnnouncements(),
-        api.getRegistrations(),
-        api.getNotifications(),
+        api.getDepartments(activeInst.id).catch(() => ({ departments: [] })),
+        api.getUsers(activeInst.id).catch(() => ({ users: [] })),
+        api.getSavedAnnouncements().catch(() => ({ savedIds: [] })),
+        api.getRegistrations().catch(() => ({ registrations: [] })),
+        api.getNotifications().catch(() => ({ notifications: [] })),
       ]);
 
-      setDepartments(deptRes.departments);
-      setAllUsers(usersRes.users);
-      setSavedIds(savedRes.savedIds);
-      setRegistrations(regRes.registrations);
-      setNotifications(notifRes.notifications);
+      setDepartments(deptRes.departments || []);
+      setAllUsers(usersRes.users || []);
+      setSavedIds(savedRes.savedIds || []);
+      setRegistrations(regRes.registrations || []);
+      setNotifications(notifRes.notifications || []);
 
-      const annRes = await api.getAnnouncements({
-        institutionId: activeInst.id,
-        category: selectedCategory,
-        sort: selectedSort,
-        search: searchQuery,
-      });
-      setAnnouncements(annRes.announcements);
+      try {
+        const annRes = await api.getAnnouncements({
+          institutionId: activeInst.id,
+          category: selectedCategory,
+          sort: selectedSort,
+          search: searchQuery,
+        });
+        setAnnouncements(annRes.announcements || []);
+      } catch (annErr) {
+        console.warn('Could not load announcements initially:', annErr);
+      }
     } catch (err) {
       console.error('Error loading initial data:', err);
       setAuthState('unauthenticated');
@@ -254,8 +269,16 @@ const toggleTheme = () => {
 
     const connect = () => {
       setRealtimeStatus(retryCount === 0 ? 'connecting' : 'reconnecting');
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      socket = new WebSocket(`${protocol}//${window.location.host}`);
+      let wsHost = window.location.host;
+      let protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      if (
+        window.location.protocol === 'capacitor:' ||
+        (window.location.hostname === 'localhost' && !window.location.port)
+      ) {
+        wsHost = 'mycollege-app.onrender.com';
+        protocol = 'wss:';
+      }
+      socket = new WebSocket(`${protocol}//${wsHost}`);
 
       socket.onmessage = (event) => {
         let parsed: unknown;

@@ -1,4 +1,11 @@
 {
+  "name": "mycollege-root",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "cd MyCollege_Project_Secured && npm start",
+    "build": "cd MyCollege_Project_Secured && npm run build",
+    "postinstall": "cd MyCollege_Project_Secured && npm install"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0"
   }
