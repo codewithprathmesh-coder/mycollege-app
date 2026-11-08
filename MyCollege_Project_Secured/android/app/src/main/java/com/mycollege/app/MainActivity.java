@@ -80,6 +80,31 @@ public class MainActivity extends BridgeActivity {
             android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
             cookieManager.setAcceptCookie(true);
             cookieManager.setAcceptThirdPartyCookies(webView, true);
+
+            // Native Android Download Listener: handles file and PDF downloads smoothly
+            webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
+                try {
+                    android.net.Uri uri = android.net.Uri.parse(url);
+                    android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(uri);
+                    String mime = (mimetype != null && !mimetype.isEmpty()) ? mimetype : "application/pdf";
+                    request.setMimeType(mime);
+                    String filename = android.webkit.URLUtil.guessFileName(url, contentDisposition, mime);
+                    request.setDescription("Downloading " + filename);
+                    request.setTitle(filename);
+                    request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename);
+                    android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                    if (dm != null) {
+                        dm.enqueue(request);
+                        android.widget.Toast.makeText(getApplicationContext(), "Downloading " + filename + "...", android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    try {
+                        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                        startActivity(intent);
+                    } catch (Exception ignored) {}
+                }
+            });
         }
     }
 

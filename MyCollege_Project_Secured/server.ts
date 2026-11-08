@@ -100,11 +100,15 @@ const app = express();
 
 // Universal CORS & Preflight handling
 app.use((req, res, next) => {
-  const origin = req.headers.origin || '*';
-  res.setHeader('Access-Control-Allow-Origin', origin);
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-session-token');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-session-token, x-user-id');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -511,23 +515,53 @@ function setSessionCookie(res: Response, token: string, maxAgeSeconds: number): 
   );
 }
 
-function hasSameOrigin(req: { headers: { origin?: string; host?: string } }): boolean {
+function isAllowedOrigin(req: { headers: { origin?: string; host?: string } }): boolean {
   const origin = req.headers.origin;
   const host = req.headers.host;
-  if (!origin || !host) return false;
+
+  // Requests from native mobile apps (Capacitor/Cordova) or non-browser agents
+  // often have no Origin header or set Origin: null
+  if (!origin || origin === 'null') {
+    return true;
+  }
+
+  // Capacitor Android / iOS local origins
+  if (
+    origin.startsWith('capacitor://') ||
+    origin.startsWith('ionic://') ||
+    origin.startsWith('http://localhost') ||
+    origin.startsWith('https://localhost') ||
+    origin.startsWith('http://127.0.0.1') ||
+    origin.startsWith('https://127.0.0.1')
+  ) {
+    return true;
+  }
 
   try {
     const originUrl = new URL(origin);
-    const usesSecureOrigin = originUrl.protocol === 'https:';
-    return (
-      ['http:', 'https:'].includes(originUrl.protocol) &&
-      originUrl.host === host &&
-      (process.env.NODE_ENV !== 'production' || usesSecureOrigin)
-    );
+
+    // Exact host match (same-origin web requests)
+    if (host && originUrl.host === host) {
+      return true;
+    }
+
+    // Official production domain on Render or local development
+    if (
+      originUrl.host === 'mycollege-app.onrender.com' ||
+      originUrl.host.endsWith('.onrender.com') ||
+      originUrl.hostname === 'localhost' ||
+      originUrl.hostname === '127.0.0.1'
+    ) {
+      return true;
+    }
+
+    return false;
   } catch {
     return false;
   }
 }
+
+const hasSameOrigin = isAllowedOrigin;
 
 // Strict session-based user lookup
 function getStrictAuthenticatedUser(req: Request): User | null {
@@ -854,8 +888,13 @@ function requireAuth(req: Request, res: Response): User | null {
 // Protect API routes by default. Only OTP/session bootstrap and public division metadata
 // are accessible without an authenticated session. A caller-supplied x-user-id is never identity proof.
 app.use('/api', async (req: Request, res: Response, next) => {
-  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !hasSameOrigin(req)) {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !isAllowedOrigin(req)) {
     return res.status(403).json({ error: 'Request origin is not allowed.' });
+  }
+
+  // Exempt attachment view and download endpoints so Google Docs Viewer and mobile downloaders can stream files
+  if (req.method === 'GET' && req.path.includes('/attachments/') && (req.path.endsWith('/view') || req.path.endsWith('/download'))) {
+    return next();
   }
 
   const publicPaths = new Set([
@@ -3198,13 +3237,25 @@ app.get('/api/announcements/:announcementId/attachments/:attachmentId/:action(vi
   const fileName = row.file_name || 'document.pdf';
   const contentType = row.content_type || 'application/pdf';
 
-  if (typeof row.storage_path === 'string' && row.storage_path.startsWith('data:')) {
-    const base64Index = row.storage_path.indexOf('base64,');
-    if (base64Index >= 0) {
-      const base64Data = row.storage_path.slice(base64Index + 7);
+  if (typeof row.storage_path === 'string') {
+    let base64Data: string | null = null;
+    if (row.storage_path.startsWith('data:')) {
+      const base64Index = row.storage_path.indexOf('base64,');
+      if (base64Index >= 0) {
+        base64Data = row.storage_path.slice(base64Index + 7);
+      }
+    } else if (
+      row.storage_path.startsWith('JVBERi0') ||
+      (!row.storage_path.startsWith('http://') && !row.storage_path.startsWith('https://') && row.storage_path.length > 100)
+    ) {
+      base64Data = row.storage_path;
+    }
+
+    if (base64Data) {
       const fileBuffer = Buffer.from(base64Data, 'base64');
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Length', fileBuffer.length);
+      res.setHeader('Access-Control-Allow-Origin', '*');
       const safeName = fileName.replace(/["\r\n]/g, '_');
       const disposition = isDownload ? 'attachment' : 'inline';
       res.setHeader('Content-Disposition', `${disposition}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`);

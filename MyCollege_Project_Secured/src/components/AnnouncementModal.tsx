@@ -47,7 +47,7 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [showAiSummary, setShowAiSummary] = useState(true);
-  const [previewPdf, setPreviewPdf] = useState<{ name: string; url: string; id?: string } | null>(null);
+  const [previewPdf, setPreviewPdf] = useState<{ name: string; url: string; directUrl?: string; id?: string } | null>(null);
 
   const isUrgent = announcement.priority === 'urgent';
 
@@ -88,16 +88,21 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
       return;
     }
 
-    // Reliable server-side download streaming with Content-Disposition
     if (att.id && announcement.id) {
       const serverDownloadUrl = resolveApiUrl(`/api/announcements/${announcement.id}/attachments/${att.id}/download`);
-      const a = document.createElement('a');
-      a.href = serverDownloadUrl;
-      a.download = att.name;
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      
+      // On Android Capacitor native app, open directly via system browser/download service
+      if (typeof window !== 'undefined' && window.location.protocol === 'capacitor:') {
+        window.open(serverDownloadUrl, '_system');
+      } else {
+        const a = document.createElement('a');
+        a.href = serverDownloadUrl;
+        a.download = att.name || 'document.pdf';
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
       return;
     }
 
@@ -115,29 +120,14 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
         const blobUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = blobUrl;
-        a.download = att.name;
+        a.download = att.name || 'document.pdf';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
       } catch (e) {
         console.error('Download error:', e);
-        const a = document.createElement('a');
-        a.href = att.url;
-        a.download = att.name;
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
       }
-    } else {
-      const a = document.createElement('a');
-      a.href = att.url;
-      a.download = att.name;
-      a.target = '_blank';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
     }
   };
 
@@ -148,11 +138,12 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
     }
 
     let viewUrl = att.url;
+    let directViewUrl = att.url;
+
     if (att.id && announcement.id) {
-      // Use absolute URL so it works both in browser and Capacitor native APK
-      const absoluteApiUrl = resolveApiUrl(`/api/announcements/${announcement.id}/attachments/${att.id}/view`);
-      // Wrap in Google Docs viewer so Android WebView can render it without a PDF plugin
-      viewUrl = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(absoluteApiUrl)}`;
+      directViewUrl = resolveApiUrl(`/api/announcements/${announcement.id}/attachments/${att.id}/view`);
+      // Google Docs viewer provides clean cross-platform PDF viewing
+      viewUrl = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(directViewUrl)}`;
     } else if (att.url.startsWith('data:')) {
       try {
         const parts = att.url.split(',');
@@ -165,6 +156,7 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
         }
         const blob = new Blob([u8arr], { type: mime });
         viewUrl = URL.createObjectURL(blob);
+        directViewUrl = viewUrl;
       } catch (e) {
         console.error('View error:', e);
       }
@@ -173,6 +165,7 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
     setPreviewPdf({
       name: att.name,
       url: viewUrl,
+      directUrl: directViewUrl,
       id: att.id,
     });
   };
@@ -527,18 +520,24 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
                   <Download className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Download</span>
                 </button>
-                <a
-                  href={previewPdf.id && announcement.id
-                    ? resolveApiUrl(`/api/announcements/${announcement.id}/attachments/${previewPdf.id}/download`)
-                    : previewPdf.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors"
-                  title="Open in external browser"
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetUrl = previewPdf.directUrl || (previewPdf.id && announcement.id
+                      ? resolveApiUrl(`/api/announcements/${announcement.id}/attachments/${previewPdf.id}/view`)
+                      : previewPdf.url);
+                    if (typeof window !== 'undefined' && window.location.protocol === 'capacitor:') {
+                      window.open(targetUrl, '_system');
+                    } else {
+                      window.open(targetUrl, '_blank');
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                  title="Open in external browser or device viewer"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Browser</span>
-                </a>
+                  <span className="hidden sm:inline">External Reader</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setPreviewPdf(null)}
@@ -559,14 +558,33 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
               />
               {/* Bottom Quick Bar for Mobile Users */}
               <div className="w-full bg-white border-t border-slate-200 px-4 py-2.5 flex items-center justify-between text-xs text-slate-600 shrink-0">
-                <span className="truncate">Need an offline copy on your phone?</span>
-                <button
-                  type="button"
-                  onClick={() => handleDownloadAttachment(previewPdf)}
-                  className="text-blue-600 hover:text-blue-800 font-bold underline ml-2 shrink-0 cursor-pointer"
-                >
-                  Download PDF
-                </button>
+                <span className="truncate">Need an offline copy or external viewer?</span>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetUrl = previewPdf.directUrl || (previewPdf.id && announcement.id
+                        ? resolveApiUrl(`/api/announcements/${announcement.id}/attachments/${previewPdf.id}/view`)
+                        : previewPdf.url);
+                      if (typeof window !== 'undefined' && window.location.protocol === 'capacitor:') {
+                        window.open(targetUrl, '_system');
+                      } else {
+                        window.open(targetUrl, '_blank');
+                      }
+                    }}
+                    className="text-blue-600 hover:text-blue-800 font-semibold underline cursor-pointer"
+                  >
+                    Open in PDF App
+                  </button>
+                  <span className="text-slate-300">·</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadAttachment(previewPdf)}
+                    className="text-blue-600 hover:text-blue-800 font-bold underline cursor-pointer"
+                  >
+                    Download PDF
+                  </button>
+                </div>
               </div>
             </div>
           </div>
