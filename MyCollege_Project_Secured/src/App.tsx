@@ -88,6 +88,8 @@ const toggleTheme = () => {
   const chatBackActionRef = useRef<(() => void) | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadingDelayed, setLoadingDelayed] = useState(false);
+  const [serverWakingUp, setServerWakingUp] = useState(false);
+  const [wakeRetryCount, setWakeRetryCount] = useState(0);
 
   // Watchdog timer: under no circumstances can initial load hang indefinitely
   useEffect(() => {
@@ -95,16 +97,20 @@ const toggleTheme = () => {
       setLoadingDelayed(true);
     }, 3500);
 
+    // Hard watchdog: if still loading after 60s (server cold start can take this long),
+    // force the user to the login screen. The intermediate state is handled by
+    // the serverWakingUp UX with auto-retries.
     const hardWatchdog = setTimeout(() => {
       setIsLoading((loading) => {
         if (loading) {
-          console.warn('[FAILSAFE] Watchdog triggered: forcing unauthenticated view.');
+          console.warn('[FAILSAFE] Watchdog triggered after 60s: forcing unauthenticated view.');
           setAuthState((curr) => (curr === 'checking' ? 'unauthenticated' : curr));
+          setServerWakingUp(false);
           return false;
         }
         return false;
       });
-    }, 6000);
+    }, 60000);
 
     return () => {
       clearTimeout(delayTimer);
@@ -122,7 +128,7 @@ const toggleTheme = () => {
   };
 
   // Initial load
-  const loadInitialData = useCallback(async () => {
+  const loadInitialData = useCallback(async (retryAttempt = 0) => {
     try {
       setIsLoading(true);
 
@@ -132,15 +138,47 @@ const toggleTheme = () => {
         setCurrentUser(null);
         setCurrentInstitution(null);
         setAuthState('unauthenticated');
+        setServerWakingUp(false);
         setIsLoading(false);
         return;
       }
 
-      const sessionRes = await api.getAuthSession().catch(() => ({
-        authenticated: false,
-        user: null,
-        divisions: [],
-      }));
+      let sessionRes: { authenticated: boolean; user: User | null; token?: string; divisions?: Division[] };
+      try {
+        sessionRes = await api.getAuthSession();
+      } catch (fetchErr: unknown) {
+        // Network / timeout error — the server is likely cold-starting.
+        // Auto-retry up to 10 times (every 5 seconds = 50 seconds max wait).
+        const isNetworkError =
+          fetchErr instanceof Error &&
+          (fetchErr.name === 'AbortError' ||
+            fetchErr.message.includes('fetch') ||
+            fetchErr.message.includes('network') ||
+            fetchErr.message.includes('timeout') ||
+            fetchErr.message.includes('Failed to fetch'));
+
+        if (isNetworkError && retryAttempt < 10) {
+          console.warn(`[COLD-START] Session check failed (attempt ${retryAttempt + 1}/10), retrying in 5s…`, fetchErr);
+          setServerWakingUp(true);
+          setWakeRetryCount(retryAttempt + 1);
+          setIsLoading(false); // stop the spinner so "waking up" UI shows
+          setTimeout(() => loadInitialData(retryAttempt + 1), 5000);
+          return;
+        }
+
+        // Too many retries or non-network error — give up
+        console.error('[COLD-START] Session check failed after retries, falling back to login.', fetchErr);
+        setServerWakingUp(false);
+        setCurrentUser(null);
+        setCurrentInstitution(null);
+        setAuthState('unauthenticated');
+        setIsLoading(false);
+        return;
+      }
+
+      // Session check succeeded — clear waking state
+      setServerWakingUp(false);
+      setWakeRetryCount(0);
 
       if (!sessionRes.authenticated || !sessionRes.user) {
         setCurrentUser(null);
@@ -1003,7 +1041,7 @@ const toggleTheme = () => {
   }
 
   // 3. Loading initial app data or validating session token
-  if (isLoading || !currentUser || !currentInstitution) {
+  if (isLoading || serverWakingUp || !currentUser || !currentInstitution) {
     return (
       <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-900 text-white flex items-center justify-center p-4">
         <div className="text-center space-y-4 max-w-xs mx-auto">
@@ -1012,15 +1050,31 @@ const toggleTheme = () => {
           </div>
           <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
           <div>
-            <h2 className="text-sm font-bold text-slate-100">Connecting to MyCollege...</h2>
-            <p className="text-xs text-slate-400 mt-1">Verifying campus security session</p>
+            {serverWakingUp ? (
+              <>
+                <h2 className="text-sm font-bold text-slate-100">Server is waking up…</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  This can take up to 30 seconds on first launch.
+                </p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Retry {wakeRetryCount}/10 — please wait
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-sm font-bold text-slate-100">Connecting to MyCollege...</h2>
+                <p className="text-xs text-slate-400 mt-1">Verifying campus security session</p>
+              </>
+            )}
           </div>
-          {loadingDelayed && (
+          {(loadingDelayed || serverWakingUp) && (
             <div className="pt-2 flex flex-col items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
                   clearSession();
+                  setServerWakingUp(false);
+                  setWakeRetryCount(0);
                   setAuthState('unauthenticated');
                   setIsLoading(false);
                 }}

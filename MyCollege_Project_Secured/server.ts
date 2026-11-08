@@ -98,6 +98,10 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 
+// ── Server readiness flag ───────────────────────────────────────────────────
+// Set to true once startServer() completes; used to return 503 during cold start.
+let serverReady = false;
+
 // Universal CORS & Preflight handling
 app.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -1120,7 +1124,8 @@ app.get(['/download/apk', '/download/app', '/api/download/apk'], (req: Request, 
 
 app.get('/api/health', (_req, res) => {
   res.json({
-    status: 'ok',
+    status: serverReady ? 'ok' : 'starting',
+    ready: serverReady,
     authProvider: 'supabase',
     deployment: process.env.RENDER_GIT_COMMIT?.slice(0, 7) || 'unknown',
     otpDelivery: supabaseAdmin && smtpConfigured
@@ -6397,7 +6402,34 @@ async function startServer() {
   });
 
   server.listen(PORT, () => {
+    serverReady = true;
     console.log(`MyCollege Server & WebSockets running on port ${PORT}`);
+
+    // ── Self-ping keep-alive ─────────────────────────────────────────────────
+    // Render free tier spins down after ~15 min of inactivity.
+    // Pinging our own /api/health every 8 minutes keeps the dyno warm.
+    if (process.env.NODE_ENV === 'production') {
+      const keepAliveUrl = process.env.APP_URL
+        ? `${process.env.APP_URL}/api/health`
+        : 'https://mycollege-app.onrender.com/api/health';
+
+      const ping = () => {
+        import('https')
+          .then(({ default: https }) => {
+            const req = https.get(keepAliveUrl, (res) => {
+              res.resume(); // drain response body to free socket
+            });
+            req.on('error', () => {}); // silently ignore errors
+            req.setTimeout(10000, () => req.destroy());
+          })
+          .catch(() => {});
+      };
+
+      // First ping after 5 min (let server fully warm up), then every 8 min
+      setTimeout(ping, 5 * 60 * 1000);
+      setInterval(ping, 8 * 60 * 1000);
+      console.log('[KEEPALIVE] Self-ping enabled every 8 min to prevent Render cold starts.');
+    }
   });
 }
 
