@@ -10,7 +10,7 @@ import type {
   ChatMessage,
   User,
 } from './types';
-import { api, setActiveUserId, clearSession } from './services/api';
+import { api, setActiveUserId, clearSession, getSessionToken } from './services/api';
 import { Header } from './components/Header';
 import { NavigationTabs, MobileNav, type ActiveTab } from './components/NavigationTabs';
 import { HomeView } from './views/HomeView';
@@ -101,6 +101,17 @@ const toggleTheme = () => {
   const loadInitialData = useCallback(async () => {
     try {
       setIsLoading(true);
+
+      // If user has no saved session token in storage, transition immediately to login view
+      const token = getSessionToken();
+      if (!token) {
+        setCurrentUser(null);
+        setCurrentInstitution(null);
+        setAuthState('unauthenticated');
+        setIsLoading(false);
+        return;
+      }
+
       const sessionRes = await api.getAuthSession().catch(() => ({
         authenticated: false,
         user: null,

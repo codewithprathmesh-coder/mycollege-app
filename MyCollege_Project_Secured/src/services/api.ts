@@ -71,24 +71,34 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   }
 
   const url = resolveApiUrl(endpoint);
-  const res = await fetch(url, {
-    ...options,
-    credentials: 'include',
-    headers,
-  });
 
-  if (!res.ok) {
-    let errorMsg = `Request failed: ${res.status} ${res.statusText}`;
-    try {
-      const data = await res.json();
-      if (data.error) errorMsg = data.error;
-    } catch {
-      // ignore json parse error
+  // 8-second safety timeout so the app never hangs indefinitely on a white screen
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      credentials: 'include',
+      headers,
+      signal: options.signal || controller.signal,
+    });
+
+    if (!res.ok) {
+      let errorMsg = `Request failed: ${res.status} ${res.statusText}`;
+      try {
+        const data = await res.json();
+        if (data.error) errorMsg = data.error;
+      } catch {
+        // ignore json parse error
+      }
+      throw new Error(errorMsg);
     }
-    throw new Error(errorMsg);
-  }
 
-  return res.json();
+    return res.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export const api = {

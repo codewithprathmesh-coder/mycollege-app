@@ -6359,10 +6359,13 @@ async function startServer() {
   const distDir = path.resolve(__dirname, 'dist');
   const indexHtml = path.resolve(distDir, 'index.html');
 
-  if (process.env.NODE_ENV === 'production' && fs.existsSync(indexHtml)) {
+  if (fs.existsSync(indexHtml)) {
     console.log(`Serving static production build from ${distDir}`);
     app.use(express.static(distDir));
-    app.get('*', (_req, res) => {
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: 'API endpoint not found.' });
+      }
       res.sendFile(indexHtml);
     });
   } else {
