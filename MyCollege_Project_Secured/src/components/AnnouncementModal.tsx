@@ -19,6 +19,7 @@ import {
   FileText,
 } from 'lucide-react';
 import type { Announcement, EventRegistration, User } from '../types';
+import { resolveApiUrl } from '../services/api';
 
 interface AnnouncementModalProps {
   announcement: Announcement;
@@ -89,7 +90,7 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
 
     // Reliable server-side download streaming with Content-Disposition
     if (att.id && announcement.id) {
-      const serverDownloadUrl = `/api/announcements/${announcement.id}/attachments/${att.id}/download`;
+      const serverDownloadUrl = resolveApiUrl(`/api/announcements/${announcement.id}/attachments/${att.id}/download`);
       const a = document.createElement('a');
       a.href = serverDownloadUrl;
       a.download = att.name;
@@ -148,7 +149,10 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
 
     let viewUrl = att.url;
     if (att.id && announcement.id) {
-      viewUrl = `/api/announcements/${announcement.id}/attachments/${att.id}/view`;
+      // Use absolute URL so it works both in browser and Capacitor native APK
+      const absoluteApiUrl = resolveApiUrl(`/api/announcements/${announcement.id}/attachments/${att.id}/view`);
+      // Wrap in Google Docs viewer so Android WebView can render it without a PDF plugin
+      viewUrl = `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(absoluteApiUrl)}`;
     } else if (att.url.startsWith('data:')) {
       try {
         const parts = att.url.split(',');
@@ -524,7 +528,9 @@ export const AnnouncementModal: React.FC<AnnouncementModalProps> = ({
                   <span className="hidden sm:inline">Download</span>
                 </button>
                 <a
-                  href={previewPdf.url}
+                  href={previewPdf.id && announcement.id
+                    ? resolveApiUrl(`/api/announcements/${announcement.id}/attachments/${previewPdf.id}/download`)
+                    : previewPdf.url}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors"

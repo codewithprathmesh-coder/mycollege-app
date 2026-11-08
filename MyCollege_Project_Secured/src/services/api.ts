@@ -44,7 +44,7 @@ export function clearSession() {
   localStorage.removeItem('mycollege_active_user_id');
 }
 
-function resolveApiUrl(endpoint: string): string {
+export function resolveApiUrl(endpoint: string): string {
   if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
     return endpoint;
   }
