@@ -26,6 +26,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleReset = () => {
     localStorage.removeItem('mycollege_active_user_id');
+    localStorage.removeItem('mycollege_session_token');
     window.location.reload();
   };
 

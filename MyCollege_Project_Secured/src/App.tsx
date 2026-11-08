@@ -87,6 +87,30 @@ const toggleTheme = () => {
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>('connecting');
   const chatBackActionRef = useRef<(() => void) | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingDelayed, setLoadingDelayed] = useState(false);
+
+  // Watchdog timer: under no circumstances can initial load hang indefinitely
+  useEffect(() => {
+    const delayTimer = setTimeout(() => {
+      setLoadingDelayed(true);
+    }, 3500);
+
+    const hardWatchdog = setTimeout(() => {
+      setIsLoading((loading) => {
+        if (loading) {
+          console.warn('[FAILSAFE] Watchdog triggered: forcing unauthenticated view.');
+          setAuthState((curr) => (curr === 'checking' ? 'unauthenticated' : curr));
+          return false;
+        }
+        return false;
+      });
+    }, 6000);
+
+    return () => {
+      clearTimeout(delayTimer);
+      clearTimeout(hardWatchdog);
+    };
+  }, []);
 
   // In-app toast feedback replacing window.alert
   const [appToast, setAppToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -981,11 +1005,38 @@ const toggleTheme = () => {
   // 3. Loading initial app data or validating session token
   if (isLoading || !currentUser || !currentInstitution) {
     return (
-      <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-50 flex items-center justify-center p-4">
-        <div className="text-center space-y-3">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
-          <h2 className="text-sm font-semibold text-slate-700">Connecting to MyCollege Platform...</h2>
-          <p className="text-xs text-slate-400">Loading institutional registry and notice boards</p>
+      <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-slate-900 text-white flex items-center justify-center p-4">
+        <div className="text-center space-y-4 max-w-xs mx-auto">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center font-extrabold text-xl shadow-lg mx-auto">
+            M
+          </div>
+          <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div>
+            <h2 className="text-sm font-bold text-slate-100">Connecting to MyCollege...</h2>
+            <p className="text-xs text-slate-400 mt-1">Verifying campus security session</p>
+          </div>
+          {loadingDelayed && (
+            <div className="pt-2 flex flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  clearSession();
+                  setAuthState('unauthenticated');
+                  setIsLoading(false);
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl shadow-md transition-colors cursor-pointer"
+              >
+                Continue to Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="text-[11px] text-slate-400 hover:text-slate-200 underline cursor-pointer"
+              >
+                Reload page
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
