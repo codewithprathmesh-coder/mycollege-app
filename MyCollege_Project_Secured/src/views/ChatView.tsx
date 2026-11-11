@@ -114,7 +114,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [newGroupTitle, setNewGroupTitle] = useState('');
   const [newGroupDescription, setNewGroupDescription] = useState('');
-  const [newGroupType, setNewGroupType] = useState<ChannelType>('class');
+  const [newGroupType, setNewGroupType] = useState<ChannelType>(currentUser.role === 'student' ? 'interest' : 'class');
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [groupTitleInput, setGroupTitleInput] = useState('');
   const [groupDescInput, setGroupDescInput] = useState('');
@@ -525,8 +525,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const handleCreateGroup = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (currentUser.role === 'student') {
-      showToast('Students are not authorized to create groups.', 'error');
+    if (currentUser.role === 'student' && newGroupType === 'class') {
+      showToast('Official class groups can only be created by faculty.', 'error');
       return;
     }
     if (!newGroupTitle.trim()) return;
@@ -546,7 +546,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       setShowCreateGroupModal(false);
       setNewGroupTitle('');
       setNewGroupDescription('');
-      setNewGroupType('class');
+      setNewGroupType(currentUser.role === 'student' ? 'interest' : 'class');
       showToast('Group created successfully.', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to create group.', 'error');
@@ -954,7 +954,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       (c.type === 'class' && (
         (c.divisionId && currentUser.divisionIds?.includes(c.divisionId)) ||
         (currentUser.role === 'faculty' && (!c.departmentId || currentUser.departmentId === c.departmentId)) ||
-        (!c.divisionId && c.departmentId && currentUser.departmentId === c.departmentId)
+        (!c.divisionId && (!c.departmentId || currentUser.departmentId === c.departmentId))
       ));
     if (!hasAccess) return false;
 
@@ -1040,16 +1040,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </span>
             </div>
 
-            {currentUser.role !== 'student' && (
-              <button
-                type="button"
-                onClick={() => setShowCreateGroupModal(true)}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Create Group
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setShowCreateGroupModal(true)}
+              className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Create Group
+            </button>
 
             {/* Search channels input */}
             <div className="relative">
@@ -1102,16 +1100,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <div className="p-8 text-center text-xs text-slate-400 space-y-2.5">
                 <Users className="w-6 h-6 mx-auto opacity-30" />
                 <p>No groups found matching filter.</p>
-                {currentUser.role !== 'student' && (
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateGroupModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold rounded-lg text-xs transition-colors cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Create a Group
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setShowCreateGroupModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold rounded-lg text-xs transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Create a Group
+                </button>
               </div>
             ) : (
               filteredChannels.map((chan) => {
@@ -2970,7 +2966,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   onChange={(event) => setNewGroupType(event.target.value as ChannelType)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500 bg-white cursor-pointer"
                 >
-                  <option value="class">Academic & Class</option>
+                  {currentUser.role !== 'student' && (
+                    <option value="class">Academic & Class</option>
+                  )}
                   <option value="interest">Tech & AI</option>
                   <option value="club">Clubs & Sports</option>
                 </select>

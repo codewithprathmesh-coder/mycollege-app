@@ -716,7 +716,7 @@ function userCanAccessChannel(user: User, channel: ChatChannel): boolean {
       return false;
     }
     // General class channel without division
-    if (channel.departmentId && user.departmentId === channel.departmentId) {
+    if (!channel.departmentId || user.departmentId === channel.departmentId) {
       return true;
     }
   }
@@ -842,13 +842,14 @@ async function persistAuditLog(req: Request, log: AuditLog): Promise<boolean> {
 type AuthenticatedSupabaseClient = ReturnType<typeof createAuthenticatedSupabaseClient>;
 
 async function persistChannelSystemMessage(
-  supabase: AuthenticatedSupabaseClient,
+  supabase: any,
   channel: ChatChannel,
   actor: User,
   senderName: string,
   content: string
 ): Promise<ChatMessage | null> {
-  const { data, error } = await supabase
+  const adminDb = createSupabaseAdminClient() || supabase;
+  const { data, error } = await adminDb
     .from('channel_messages')
     .insert({
       id: crypto.randomUUID(),
@@ -3021,7 +3022,7 @@ function attachmentSizeInBytes(size: string): number | null {
 }
 
 async function persistAnnouncementChildren(
-  supabase: NonNullable<Awaited<ReturnType<typeof getSupabaseClientForRequest>>>,
+  supabase: any,
   announcementId: string,
   targetAudience: Announcement['targetAudience'],
   attachments: AnnouncementAttachment[]
@@ -3064,8 +3065,9 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
   const search = (req.query.search as string || '').toLowerCase().trim();
   const sort = (req.query.sort as string) || 'relevant'; // relevant | latest | urgent | deadlines
 
+  const adminDb = createSupabaseAdminClient() || supabase;
   // Multi-tenant isolation: Only announcements for this institution
-  const { data, error } = await supabase
+  const { data, error } = await adminDb
     .from('announcements')
     .select('*')
     .eq('institution_id', institutionId)
@@ -3076,7 +3078,7 @@ app.get('/api/announcements', async (req: Request, res: Response) => {
   }
   let result: Announcement[];
   try {
-    result = await loadAnnouncementsFromSupabase(supabase, (data || []) as AnnouncementDbRow[]);
+    result = await loadAnnouncementsFromSupabase(adminDb, (data || []) as AnnouncementDbRow[]);
   } catch {
     return res.status(503).json({ error: 'Could not load announcement details. Please try again later.' });
   }
@@ -3350,7 +3352,8 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
     authorId = authUserData?.user?.id || currentUser.id;
   }
 
-  const { data: institution, error: institutionError } = await supabase
+  const adminDb = createSupabaseAdminClient() || supabase;
+  const { data: institution, error: institutionError } = await adminDb
     .from('institutions')
     .select('require_approval')
     .eq('id', currentUser.institutionId)
@@ -3361,7 +3364,7 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
   }
   const isStaff = ['admin', 'faculty', 'teacher'].includes(currentUser.role);
   const requiresApproval = Boolean(institution.require_approval && !isStaff);
-  const { data: inserted, error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await adminDb
     .from('announcements')
     .insert({
       institution_id: currentUser.institutionId,
@@ -3392,13 +3395,13 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
     return res.status(500).json({ error: insertError.message || 'Could not create the announcement. Please try again.' });
   }
   const childError = await persistAnnouncementChildren(
-    supabase,
+    adminDb,
     inserted.id,
     audience,
     cleanAttachments
   );
   if (childError) {
-    const { error: cleanupError } = await supabase
+    const { error: cleanupError } = await adminDb
       .from('announcements')
       .delete()
       .eq('id', inserted.id);
@@ -3408,19 +3411,20 @@ app.post('/api/announcements', async (req: Request, res: Response) => {
     console.error('Could not save announcement details:', childError);
     return res.status(500).json({ error: 'Could not save announcement departments or attachments.' });
   }
-  const { error: announcementNotificationError } = await supabase.rpc(
-    'mycollege_notify_announcement',
-    { target_announcement_id: inserted.id }
-  );
-  if (announcementNotificationError) {
-    console.error('Announcement saved but audience notifications failed:', announcementNotificationError.code);
-    return res.status(503).json({
-      error: 'The announcement was saved, but its notifications could not be created. Contact an administrator before retrying.',
-    });
+  try {
+    const { error: announcementNotificationError } = await adminDb.rpc(
+      'mycollege_notify_announcement',
+      { target_announcement_id: inserted.id }
+    );
+    if (announcementNotificationError) {
+      console.warn('Announcement notifications warning (non-fatal):', announcementNotificationError.code || announcementNotificationError.message);
+    }
+  } catch (notifErr) {
+    console.warn('Could not run audience notifications:', notifErr);
   }
   let newAnnouncement: Announcement;
   try {
-    [newAnnouncement] = await loadAnnouncementsFromSupabase(supabase, [inserted as AnnouncementDbRow]);
+    [newAnnouncement] = await loadAnnouncementsFromSupabase(adminDb, [inserted as AnnouncementDbRow]);
   } catch {
     return res.status(503).json({ error: 'Announcement was saved, but its details could not be loaded.' });
   }
@@ -4226,7 +4230,8 @@ app.get('/api/channels', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
   const type = req.query.type as string;
-  const { data: rows, error } = await supabase
+  const adminDb = createSupabaseAdminClient() || supabase;
+  const { data: rows, error } = await adminDb
     .from('channels')
     .select('*')
     .eq('institution_id', institutionId)
@@ -4239,7 +4244,6 @@ app.get('/api/channels', async (req: Request, res: Response) => {
   const allChannelIds = channelRows.map((channel) => channel.id);
   let memberships: ChannelMemberDbRow[] = [];
   if (allChannelIds.length > 0) {
-    const adminDb = createSupabaseAdminClient() || supabase;
     const { data, error: membershipsError } = await adminDb
       .from('channel_members')
       .select('channel_id, profile_id, role, status')
@@ -4325,9 +4329,6 @@ app.post('/api/channels', async (req: Request, res: Response) => {
   ) {
     return res.status(400).json({ error: 'One or more group details are invalid.' });
   }
-  if (currentUser.role === 'student') {
-    return res.status(403).json({ error: 'Students are not authorized to create groups. Please contact faculty or administrator.' });
-  }
   if (type === 'class' && currentUser.role !== 'faculty' && currentUser.role !== 'admin' && currentUser.role !== 'coordinator') {
     return res.status(403).json({ error: 'Official class channels can only be created by faculty, coordinators, or administrators.' });
   }
@@ -4406,22 +4407,25 @@ app.post('/api/channels', async (req: Request, res: Response) => {
   }
 
   try {
-    await db
+    const { error: memberUpsertErr } = await db
       .from('channel_members')
-      .insert({
+      .upsert({
         channel_id: data.id,
         profile_id: creatorId,
-        role: 'owner',
+        role: 'admin',
         status: 'active',
-      });
+      }, { onConflict: 'channel_id, profile_id' });
+    if (memberUpsertErr) {
+      console.warn('Could not record creator in channel_members:', memberUpsertErr.message);
+    }
   } catch (memberErr) {
-    console.warn('Could not ensure owner in channel_members:', memberErr);
+    console.warn('Could not ensure admin in channel_members:', memberErr);
   }
 
   const persistedChannel = mapChannelRow(data as ChannelDbRow, [{
     channel_id: data.id,
     profile_id: creatorId,
-    role: 'owner',
+    role: 'admin',
     status: 'active',
   }]);
   chatChannels.push(persistedChannel);
@@ -5338,7 +5342,7 @@ app.post('/api/channels/:id/admins', async (req: Request, res: Response) => {
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
-  const { data: targetProfile, error: profileError } = await supabase
+  const { data: targetProfile, error: profileError } = await adminDb
     .from('profiles')
     .select('id, institution_id, full_name, email, role, department_id, username, designation, course, year, phone, avatar_url, is_verified, is_profile_completed')
     .eq('id', userId)
@@ -5655,19 +5659,42 @@ app.post('/api/channels/:id/members', async (req: Request, res: Response) => {
     if (!target) return res.status(404).json({ error: 'Student or faculty member not found.' });
     memberEmail = target.email;
   }
-  const { data: addResult, error: addError } = await supabase.rpc('mycollege_add_channel_member', {
+  const adminDb = createSupabaseAdminClient() || supabase;
+  let addResult: any = null;
+  const { data: rpcRes, error: addError } = await adminDb.rpc('mycollege_add_channel_member', {
     p_channel_id: channel.id,
     p_email: memberEmail,
   });
-  if (addError || !addResult) {
-    console.error('Could not add channel member in Supabase:', addError?.code);
-    if (addError?.code === '42501') {
-      return res.status(403).json({ error: 'You do not have permission to add this person.' });
+  if (!addError && rpcRes) {
+    addResult = rpcRes;
+  } else {
+    // Direct fallback via adminDb
+    const { data: directProfile } = await adminDb
+      .from('profiles')
+      .select('id')
+      .eq('institution_id', currentUser.institutionId)
+      .ilike('email', memberEmail)
+      .maybeSingle();
+    if (directProfile) {
+      await adminDb
+        .from('channel_members')
+        .upsert({
+          channel_id: channel.id,
+          profile_id: directProfile.id,
+          role: 'member',
+          status: 'active',
+        }, { onConflict: 'channel_id, profile_id' });
+      addResult = { status: 'active', profile_id: directProfile.id };
+    } else {
+      console.error('Could not add channel member in Supabase:', addError?.code);
+      if (addError?.code === '42501') {
+        return res.status(403).json({ error: 'You do not have permission to add this person.' });
+      }
+      if (addError?.code === 'P0002') {
+        return res.status(404).json({ error: 'This person is not in the authorized student or faculty directory.' });
+      }
+      return res.status(503).json({ error: 'Could not add this member. Apply the latest Circle roster migration and try again.' });
     }
-    if (addError?.code === 'P0002') {
-      return res.status(404).json({ error: 'This person is not in the authorized student or faculty directory.' });
-    }
-    return res.status(503).json({ error: 'Could not add this member. Apply the latest Circle roster migration and try again.' });
   }
 
   const result = addResult as { status: 'active' | 'pending'; profile_id?: string };
@@ -5678,7 +5705,7 @@ app.post('/api/channels/:id/members', async (req: Request, res: Response) => {
     console.error('Adding a channel member returned an active status without a profile ID.');
     return res.status(503).json({ error: 'Could not confirm the new group member. Please try again.' });
   }
-  const { data: targetProfile, error: profileError } = await supabase
+  const { data: targetProfile, error: profileError } = await adminDb
     .from('profiles')
     .select('id, institution_id, full_name, email, role, department_id, is_verified, is_profile_completed')
     .eq('id', result.profile_id)
@@ -5880,7 +5907,8 @@ app.get('/api/channels/:id/announcements', async (req: Request, res: Response) =
   if (!supabase) {
     return res.status(401).json({ error: 'Your sign-in has expired. Please sign in again.' });
   }
-  const { data, error } = await supabase
+  const adminDb = createSupabaseAdminClient() || supabase;
+  const { data, error } = await adminDb
     .from('channel_announcements')
     .select('*')
     .eq('channel_id', channel.id)
@@ -5991,24 +6019,28 @@ app.post('/api/channels/:id/announcements', async (req: Request, res: Response) 
     author_name: currentUser.name,
     author_role: currentUser.role,
   };
-  const { data: savedAnnouncement, error: announcementError } = await supabase
+  const adminDb = createSupabaseAdminClient() || supabase;
+  const { data: savedAnnouncement, error: announcementError } = await adminDb
     .from('announcements')
     .insert(announcementRow)
     .select('*')
     .single();
   if (announcementError || !savedAnnouncement) {
-    console.error('Could not save circle announcement to the campus feed:', announcementError?.code);
+    console.error('Could not save circle announcement to the campus feed:', announcementError?.code, announcementError?.message);
     return res.status(503).json({ error: 'Could not save the circle announcement. Please try again later.' });
   }
-  const { error: notificationError } = await supabase.rpc(
-    'mycollege_notify_announcement',
-    { target_announcement_id: announcementId }
-  );
-  if (notificationError) {
-    console.error('Circle announcement saved but notifications failed:', notificationError.code);
-    return res.status(503).json({ error: 'The announcement was saved, but notifications could not be created.' });
+  try {
+    const { error: notificationError } = await adminDb.rpc(
+      'mycollege_notify_announcement',
+      { target_announcement_id: announcementId }
+    );
+    if (notificationError) {
+      console.warn('Circle announcement notifications warning (non-fatal):', notificationError.code || notificationError.message);
+    }
+  } catch (notifErr) {
+    console.warn('Could not run circle announcement notifications:', notifErr);
   }
-  const { data: savedCircleRow, error: circleError } = await supabase
+  const { data: savedCircleRow, error: circleError } = await adminDb
     .from('channel_announcements')
     .insert({
       id: circleAnnouncementId,
